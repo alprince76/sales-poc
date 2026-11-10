@@ -16,6 +16,9 @@ describe('US-A2 Ringkasan & warning upload', () => {
       { kode_salesman: 'SLS01', nama_salesman: 'Arli', tanggal_kunjungan: '2026-11-09', kode_toko: 'TK00001' },
       { kode_salesman: 'SLS01', nama_salesman: 'Arli', tanggal_kunjungan: '2026-11-14', kode_toko: 'TK99999' },
     ],
+    produk: [],
+    rules: [],
+    histori: [],
   };
 
   it('Kode toko di PJP tidak ada di ROVI → upload tetap berhasil + warning "1 toko tidak ditemukan di data ROVI"', () => {

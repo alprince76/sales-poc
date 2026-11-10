@@ -1,15 +1,16 @@
 /**
- * Parsing + validasi baris Excel/CSV untuk Master, ROVI, PJP.
+ * Parsing + validasi baris Excel/CSV untuk Master, ROVI, PJP, Produk, Order Rules, Histori Sales.
  * Header case-insensitive (spasi → underscore). Nomor baris = nomor baris Excel (header = baris 1).
  */
 import * as XLSX from 'xlsx';
 import { normalizeDate } from './dates';
 import { normKode } from './billing';
-import type { Faktur, Kunjungan, MasterToko } from './types';
+import type { DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, OrderRule, Produk } from './types';
 
-export type TipeData = 'master' | 'rovi' | 'pjp';
+export type TipeData = keyof DataSet;
+export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori'];
 
-type JenisKolom = 'string' | 'date' | 'int';
+type JenisKolom = 'string' | 'date' | 'int' | 'bool';
 interface Kolom {
   nama: string;
   jenis: JenisKolom;
@@ -26,6 +27,10 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'kode_toko', jenis: 'string', wajib: true },
       { nama: 'nama_toko', jenis: 'string', wajib: true },
       { nama: 'area', jenis: 'string', wajib: false },
+      { nama: 'alamat', jenis: 'string', wajib: false },
+      { nama: 'tipe_outlet', jenis: 'string', wajib: false },
+      { nama: 'limit_kredit', jenis: 'int', wajib: false },
+      { nama: 'status_blokir', jenis: 'bool', wajib: false },
     ],
   },
   rovi: {
@@ -52,7 +57,46 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'urutan', jenis: 'int', wajib: false },
     ],
   },
+  produk: {
+    sheet: 'Produk',
+    kolom: [
+      { nama: 'kode_sku', jenis: 'string', wajib: true },
+      { nama: 'nama_sku', jenis: 'string', wajib: true },
+      { nama: 'divisi', jenis: 'string', wajib: true },
+      { nama: 'kategori', jenis: 'string', wajib: false },
+      { nama: 'harga', jenis: 'int', wajib: true },
+      { nama: 'channel', jenis: 'string', wajib: false },
+    ],
+  },
+  rules: {
+    sheet: 'Order_Rules',
+    kolom: [
+      { nama: 'kode_sku', jenis: 'string', wajib: true },
+      { nama: 'satuan', jenis: 'string', wajib: true },
+      { nama: 'moq', jenis: 'int', wajib: true },
+      { nama: 'kelipatan', jenis: 'int', wajib: false },
+    ],
+  },
+  histori: {
+    sheet: 'Histori_Sales',
+    kolom: [
+      { nama: 'kode_toko', jenis: 'string', wajib: true },
+      { nama: 'kode_sku', jenis: 'string', wajib: true },
+      { nama: 'tanggal_po', jenis: 'date', wajib: true },
+      { nama: 'qty', jenis: 'int', wajib: true },
+    ],
+  },
 };
+
+/** "YA"/"TIDAK", "Y"/"N", "true"/"false", 1/0. */
+export function parseBool(v: unknown): boolean | null {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1 ? true : v === 0 ? false : null;
+  const s = String(v).trim().toUpperCase();
+  if (['YA', 'Y', 'YES', 'TRUE', '1', 'BLOKIR'].includes(s)) return true;
+  if (['TIDAK', 'T', 'N', 'NO', 'FALSE', '0', '-'].includes(s)) return false;
+  return null;
+}
 
 export interface ErrorBaris {
   baris: number;
@@ -135,6 +179,10 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
         const d = normalizeDate(raw);
         if (d) obj[k.nama] = d;
         else alasan.push(`${k.nama} bukan tanggal valid ("${String(raw)}")`);
+      } else if (k.jenis === 'bool') {
+        const b = parseBool(raw);
+        if (b === null) alasan.push(`${k.nama} harus YA/TIDAK ("${String(raw)}")`);
+        else obj[k.nama] = b;
       } else {
         const n = parseInt0(raw);
         if (n === null) alasan.push(`${k.nama} bukan angka bulat ("${String(raw)}")`);
@@ -144,6 +192,15 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
     }
     if ('kode_toko' in obj) obj.kode_toko = normKode(obj.kode_toko as string);
     if ('kode_salesman' in obj) obj.kode_salesman = normKode(obj.kode_salesman as string);
+    if ('kode_sku' in obj) obj.kode_sku = normKode(obj.kode_sku as string);
+    if (tipe === 'rules' && !alasan.length && (obj.moq as number) < 1) alasan.push('moq minimal 1');
+    if (tipe === 'rules' && !alasan.length && obj.kelipatan !== undefined && (obj.kelipatan as number) < 1)
+      alasan.push('kelipatan minimal 1');
+    if ((tipe === 'produk' || tipe === 'rules') && !alasan.length) {
+      const sku = obj.kode_sku as string;
+      if (seenFaktur.has(sku)) alasan.push(`kode_sku duplikat (${sku})`);
+      seenFaktur.add(sku);
+    }
 
     if (tipe === 'rovi' && !alasan.length) {
       const no = String(obj.no_faktur).trim().toUpperCase();
@@ -160,6 +217,9 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
 export function parseSheet(tipe: 'master', ws: XLSX.WorkSheet): HasilParse<MasterToko>;
 export function parseSheet(tipe: 'rovi', ws: XLSX.WorkSheet): HasilParse<Faktur>;
 export function parseSheet(tipe: 'pjp', ws: XLSX.WorkSheet): HasilParse<Kunjungan>;
+export function parseSheet(tipe: 'produk', ws: XLSX.WorkSheet): HasilParse<Produk>;
+export function parseSheet(tipe: 'rules', ws: XLSX.WorkSheet): HasilParse<OrderRule>;
+export function parseSheet(tipe: 'histori', ws: XLSX.WorkSheet): HasilParse<HistoriSales>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unknown>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unknown> {
   const { header, rows } = sheetToRows(ws);
@@ -184,14 +244,29 @@ export function bacaWorkbook(data: ArrayBuffer | Uint8Array): XLSX.WorkBook {
   return XLSX.read(data, { type: 'array', cellDates: false, raw: true });
 }
 
-/** Baca seluruh dataset (Master, ROVI, PJP) dari satu workbook seperti Dummy_ROVI_PJP.xlsx. */
+const KOSONG: HasilParse<never> = { kolomHilang: [], valid: [], error: [], totalBaris: 0 };
+
+/**
+ * Baca seluruh dataset dari satu workbook seperti Dummy_ROVI_PJP.xlsx.
+ * Master_Toko, ROVI, PJP wajib; Produk, Order_Rules, Histori_Sales opsional.
+ */
 export function bacaDataSet(wb: XLSX.WorkBook) {
-  const get = (n: string) => wb.Sheets[wb.SheetNames.find((s) => s.toLowerCase() === n.toLowerCase()) ?? ''];
-  const ws = { master: get('Master_Toko'), rovi: get('ROVI'), pjp: get('PJP') };
-  for (const [k, v] of Object.entries(ws)) if (!v) throw new Error(`Sheet ${SKEMA[k as TipeData].sheet} tidak ditemukan`);
+  const get = (t: TipeData) => {
+    const name = wb.SheetNames.find((s) => s.toLowerCase() === SKEMA[t].sheet.toLowerCase());
+    return name ? wb.Sheets[name] : undefined;
+  };
+  for (const t of ['master', 'rovi', 'pjp'] as const)
+    if (!get(t)) throw new Error(`Sheet ${SKEMA[t].sheet} tidak ditemukan`);
+  const opt = <T,>(t: TipeData, f: (ws: XLSX.WorkSheet) => HasilParse<T>): HasilParse<T> => {
+    const ws = get(t);
+    return ws ? f(ws) : KOSONG;
+  };
   return {
-    master: parseSheet('master', ws.master),
-    rovi: parseSheet('rovi', ws.rovi),
-    pjp: parseSheet('pjp', ws.pjp),
+    master: parseSheet('master', get('master')!),
+    rovi: parseSheet('rovi', get('rovi')!),
+    pjp: parseSheet('pjp', get('pjp')!),
+    produk: opt('produk', (ws) => parseSheet('produk', ws)),
+    rules: opt('rules', (ws) => parseSheet('rules', ws)),
+    histori: opt('histori', (ws) => parseSheet('histori', ws)),
   };
 }

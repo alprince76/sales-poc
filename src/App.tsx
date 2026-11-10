@@ -1,68 +1,68 @@
-import { useEffect, useState } from 'react';
-import { AdminPage } from './pages/AdminPage';
-import { SalesPage } from './pages/SalesPage';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { Button } from './components/ui';
+import { AdminLayout } from './pages/admin/AdminLayout';
+import { PenagihanPage, POPage, RuteAdminPage, StokPage, TokoFakturPage } from './pages/admin/AdminPages';
+import { DashboardPage } from './pages/admin/DashboardPage';
+import { DataPage } from './pages/admin/DataPage';
+import { SalesLayout } from './pages/sales/SalesLayout';
+import { AktivitasPage, RutePage, TagihanPage, TokoPage } from './pages/sales/SalesPages';
+import { SalesSessionProvider } from './pages/sales/session';
+import { VisitPage } from './pages/sales/VisitPage';
 import { useData } from './state';
 
-type Route = 'sales' | 'admin';
-
-/** Routing sederhana: /sales dan /admin (path). Root → /sales. */
-function readRoute(): Route {
-  return window.location.pathname.replace(/\/+$/, '').endsWith('/admin') ? 'admin' : 'sales';
+function Splash() {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 text-sm text-slate-500">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-600" aria-hidden />
+      Memuat data…
+    </div>
+  );
 }
 
 export function App() {
-  const [route, setRoute] = useState<Route>(readRoute);
   const { status, error, resetDummy } = useData();
-
-  useEffect(() => {
-    const onPop = () => setRoute(readRoute());
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
-
-  const go = (r: Route) => {
-    window.history.pushState(null, '', `/${r}`);
-    setRoute(r);
-  };
-
-  const tab = (r: Route, label: string) => (
-    <button
-      type="button"
-      onClick={() => go(r)}
-      aria-current={route === r ? 'page' : undefined}
-      className={`rounded-md px-3 py-1.5 text-sm font-medium ${route === r ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-    >
-      {label}
-    </button>
-  );
+  if (status === 'loading') return <Splash />;
+  if (status === 'error')
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-4 text-center">
+        <p className="font-semibold text-red-700">Gagal memuat data</p>
+        <p className="mt-1 text-sm text-slate-600">{error}</p>
+        <Button className="mt-4" onClick={() => void resetDummy()}>
+          Coba lagi
+        </Button>
+      </div>
+    );
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <nav className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-2">
-          <span className="truncate text-sm font-semibold text-slate-700">Due Invoice Tracker · POC</span>
-          <div className="flex gap-1">
-            {tab('sales', 'Sales')}
-            {tab('admin', 'Admin')}
-          </div>
-        </div>
-      </nav>
-
-      {status === 'loading' ? (
-        <p className="py-16 text-center text-sm text-slate-500">Memuat data…</p>
-      ) : status === 'error' ? (
-        <div className="mx-auto max-w-md px-4 py-16 text-center">
-          <p className="font-medium text-red-700">Gagal memuat data</p>
-          <p className="mt-1 text-sm text-slate-600">{error}</p>
-          <button type="button" onClick={() => void resetDummy()} className="mt-4 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white">
-            Coba lagi
-          </button>
-        </div>
-      ) : route === 'admin' ? (
-        <AdminPage />
-      ) : (
-        <SalesPage />
-      )}
-    </div>
+    <Routes>
+      <Route path="/" element={<Navigate to="/sales" replace />} />
+      <Route
+        path="/sales/*"
+        element={
+          <SalesSessionProvider>
+            <Routes>
+              <Route path="kunjungan/:kode" element={<VisitPage />} />
+              <Route element={<SalesLayout />}>
+                <Route index element={<RutePage />} />
+                <Route path="tagihan" element={<TagihanPage />} />
+                <Route path="toko" element={<TokoPage />} />
+                <Route path="aktivitas" element={<AktivitasPage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/sales" replace />} />
+            </Routes>
+          </SalesSessionProvider>
+        }
+      />
+      <Route path="/admin" element={<AdminLayout />}>
+        <Route index element={<DashboardPage />} />
+        <Route path="rute" element={<RuteAdminPage />} />
+        <Route path="toko" element={<TokoFakturPage />} />
+        <Route path="penagihan" element={<PenagihanPage />} />
+        <Route path="po" element={<POPage />} />
+        <Route path="stok" element={<StokPage />} />
+        <Route path="data" element={<DataPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/sales" replace />} />
+    </Routes>
   );
 }

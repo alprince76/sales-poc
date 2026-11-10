@@ -13,6 +13,9 @@ import type {
   UrutanMode,
 } from './types';
 
+/** Data yang dibutuhkan logika penagihan. */
+export type DataInti = Pick<DataSet, 'master' | 'rovi' | 'pjp'>;
+
 /** BR-08: key join = kode_toko di-trim + uppercase. */
 export function normKode(kode: string | null | undefined): string {
   return String(kode ?? '').trim().toUpperCase();
@@ -197,7 +200,7 @@ export interface OpsiKunjungan {
 
 /** Daftar kunjungan salesman di tanggal D, lengkap dengan status tagihan tiap toko. */
 export function hitungKunjungan(
-  data: DataSet,
+  data: DataInti,
   kodeSalesman: string,
   D: ISODate,
   opsi: OpsiKunjungan = {},
@@ -262,7 +265,7 @@ export interface FilterToko {
  * US-A3: semua toko (Master ∪ ROVI) + ringkasan tagihan relatif D.
  * Urut: overdue paling lama dulu → total harus ditagih ↓ → kode toko.
  */
-export function daftarToko(data: DataSet, D: ISODate, filter: FilterToko = {}): BarisToko[] {
+export function daftarToko(data: DataInti, D: ISODate, filter: FilterToko = {}): BarisToko[] {
   const fakturIdx = indexFaktur(data.rovi);
   const masterIdx = indexMaster(data.master);
   const kodeSemua = new Set<string>([...masterIdx.keys(), ...fakturIdx.keys()]);

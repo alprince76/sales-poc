@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { daftarToko, detailToko, hitungKunjungan, nilaiFaktur, normKode, ringkasTagihan } from './billing';
-import type { DataSet, Faktur, Kunjungan, MasterToko } from './types';
+import { daftarToko, detailToko, hitungKunjungan, nilaiFaktur, normKode, ringkasTagihan, type DataInti } from './billing';
+import type { Faktur, Kunjungan, MasterToko } from './types';
 
 const D = '2026-11-09';
 
@@ -24,7 +24,7 @@ function kunjungan(sales: string, kode: string, urutan: number, tanggal = D): Ku
 function master(sales: string, kode: string, nama = `Toko ${kode}`): MasterToko {
   return { kode_salesman: sales, nama_salesman: sales, kode_toko: kode, nama_toko: nama, area: 'Cibinong' };
 }
-const data = (p: Partial<DataSet>): DataSet => ({ master: [], rovi: [], pjp: [], ...p });
+const data = (p: Partial<DataInti>): DataInti => ({ master: [], rovi: [], pjp: [], ...p });
 const baris = (h: ReturnType<typeof hitungKunjungan>, kode: string) => h.baris.find((b) => b.kode_toko === kode)!;
 
 // ───────────────────────── Gherkin: US-S2 Kunjungan hari ini ─────────────────────────

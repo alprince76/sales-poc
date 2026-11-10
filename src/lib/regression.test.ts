@@ -25,18 +25,29 @@ const aoa = (name: string) =>
 beforeAll(() => {
   wb = bacaWorkbook(readFileSync(FILE));
   parsed = bacaDataSet(wb);
-  ds = { master: parsed.master.valid, rovi: parsed.rovi.valid, pjp: parsed.pjp.valid };
+  ds = {
+    master: parsed.master.valid,
+    rovi: parsed.rovi.valid,
+    pjp: parsed.pjp.valid,
+    produk: parsed.produk.valid,
+    rules: parsed.rules.valid,
+    histori: parsed.histori.valid,
+  };
 });
 
 describe('Regresi Dummy_ROVI_PJP.xlsx', () => {
   it('semua baris dummy valid', () => {
-    for (const k of ['master', 'rovi', 'pjp'] as const) {
+    for (const k of ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori'] as const) {
       expect(parsed[k].kolomHilang).toEqual([]);
       expect(parsed[k].error).toEqual([]);
     }
     expect(ds.master).toHaveLength(1399);
     expect(ds.rovi).toHaveLength(1105);
     expect(ds.pjp).toHaveLength(1399);
+    expect(ds.produk).toHaveLength(40);
+    expect(ds.rules).toHaveLength(40);
+    expect(ds.histori.length).toBeGreaterThan(10_000);
+    expect(ds.master.find((m) => m.kode_toko === 'TK00054')?.status_blokir).toBe(true);
   });
 
   it('Kunjungan Hari Ini SLS01 @ 2026-11-09 sama persis dengan Contoh_Output_Sales', () => {
