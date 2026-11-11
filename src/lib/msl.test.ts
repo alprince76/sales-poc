@@ -5,7 +5,7 @@ import {
   daftarSkuMSL,
   indexMsl,
   indexTransaksi,
-  ringkasDivisi,
+  ringkasPrincipal,
   teksTerakhirOrder,
   type KonteksMSL,
 } from './msl';
@@ -78,10 +78,10 @@ describe('MSL: SKU Listing & Warning', () => {
   });
 
   it('counter per divisi & compliance toko', () => {
-    expect(ringkasDivisi(list)).toEqual([
-      { divisi: 'Danone', total: 2, listed: 2, warning: 1 },
-      { divisi: 'Huki', total: 1, listed: 1, warning: 1 },
-      { divisi: 'Yupi', total: 2, listed: 1, warning: 1 },
+    expect(ringkasPrincipal(list)).toEqual([
+      { principal: 'Danone', total: 2, listed: 2, warning: 1 },
+      { principal: 'Huki', total: 1, listed: 1, warning: 1 },
+      { principal: 'Yupi', total: 2, listed: 1, warning: 1 },
     ]);
     expect(compliance(list)).toEqual({ listed: 4, warning: 3, belumPernah: 1, aktif: 1, persen: 25 });
   });
@@ -118,5 +118,18 @@ describe('MSL: warning dinamis setelah PO', () => {
   it('PO bertanggal setelah D tidak dihitung', () => {
     const list = daftarSkuMSL(ctx([po('2026-11-12', ['DAN-1'])]), 'MT001', D);
     expect(list.find((x) => x.kode_sku === 'DAN-1')!.warning).toBe('NO_ORDER_30');
+  });
+});
+
+describe('MSL: warning saat input PO (keranjang)', () => {
+  it('SKU di keranjang: warning hilang (warningAwal tetap tercatat); compliance sebelum vs sesudah', () => {
+    const list = daftarSkuMSL(ctx(), 'MT001', D, { 'DAN-1': 6, 'HUK-1': 0 });
+    const s = (k: string) => list.find((x) => x.kode_sku === k)!;
+    expect(s('DAN-1')).toMatchObject({ diPO: true, warning: null, warningAwal: 'NO_ORDER_30' });
+    expect(s('HUK-1')).toMatchObject({ diPO: false, warning: 'BELUM_PERNAH' }); // qty 0 = tidak dihitung
+    expect(compliance(list, 'sebelum')).toMatchObject({ warning: 3, aktif: 1, persen: 25 });
+    expect(compliance(list)).toMatchObject({ warning: 2, aktif: 2, persen: 50 });
+    // Urutan: warning tersisa tetap di atas, lalu SKU yang masuk PO.
+    expect(kode(list).slice(0, 3)).toEqual(['HUK-1', 'YUP-1', 'DAN-1']);
   });
 });

@@ -225,7 +225,7 @@ export function MtOrderPage() {
           <ul className="space-y-2">
             {draft.map((d) => (
               <li key={d.toko}>
-                <button type="button" onClick={() => nav(`${linkToko(d.toko)}/po`)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 text-left shadow-card hover:bg-slate-50">
+                <button type="button" onClick={() => nav(`${linkToko(d.toko)}?step=summary`)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white p-3 text-left shadow-card hover:bg-slate-50">
                   <div className="min-w-0">
                     <div className="truncate font-semibold text-slate-900">{masterIdx.get(d.toko)?.nama_toko ?? d.toko}</div>
                     <div className="text-xs text-slate-500">{d.n} SKU</div>

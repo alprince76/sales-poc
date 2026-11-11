@@ -1,4 +1,4 @@
-import { AlertTriangle, Plus } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import { Badge, cn, NumberStepper } from '../../components/ui';
 import { normKode } from '../../lib/billing';
@@ -8,10 +8,14 @@ import { compliance, daftarSkuMSL, labelWarning, teksTerakhirOrder, type SkuMSL 
 import { bulatkanQty, historiToko, suggestedQty, validasiQty } from '../../lib/order';
 import { useData } from '../../state';
 
-/** Daftar SKU MSL satu toko di tanggal D (dinamis: ikut PO yang sudah disubmit). */
-export function useMslToko(kodeToko: string, D: ISODate): SkuMSL[] {
-  const { produk, mslIdx, trxIdx } = useData();
-  return useMemo(() => daftarSkuMSL({ produk, mslIdx, trxIdx }, kodeToko, D), [produk, mslIdx, trxIdx, kodeToko, D]);
+/**
+ * Daftar SKU MSL satu toko di tanggal D. Dinamis: PO yang sudah disubmit + keranjang PO yang sedang dibuat
+ * (SKU di keranjang = akan ditransaksikan → warning hilang; `warningAwal` menyimpan kondisi sebelum PO).
+ */
+export function useMslToko(kodeToko: string, D: ISODate, pakaiKeranjang = true): SkuMSL[] {
+  const { produk, mslIdx, trxIdx, keranjang } = useData();
+  const k = pakaiKeranjang ? keranjang[kodeToko] : undefined;
+  return useMemo(() => daftarSkuMSL({ produk, mslIdx, trxIdx }, kodeToko, D, k ?? {}), [produk, mslIdx, trxIdx, kodeToko, D, k]);
 }
 
 export interface BarisRuteMT {
@@ -35,7 +39,7 @@ export function useRuteMT(sales: string, D: ISODate, urutan: 'prioritas' | 'rute
       .filter((p) => normKode(p.kode_salesman) === sa && p.tanggal_kunjungan === D)
       .map((p) => {
         const kode = normKode(p.kode_toko);
-        const c = compliance(daftarSkuMSL({ produk, mslIdx, trxIdx }, kode, D));
+        const c = compliance(daftarSkuMSL({ produk, mslIdx, trxIdx }, kode, D, keranjang[kode] ?? {}));
         const m = masterIdx.get(kode);
         return {
           kode_toko: kode,
@@ -74,24 +78,33 @@ export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISO
     setQtyKeranjang(kodeToko, s.kode_sku, saran || bulatkanQty(s.moq, s));
   };
   return (
-    <li className={cn('rounded-2xl border bg-white p-3 shadow-card', s.warning ? 'border-red-200 ring-1 ring-red-100' : 'border-slate-200/80')}>
+    <li className={cn('rounded-2xl border bg-white p-3 shadow-card', s.warning ? 'border-red-200 ring-1 ring-red-100' : s.diPO ? 'border-emerald-200' : 'border-slate-200/80')}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          {s.warning && (
+          {s.warning ? (
             <div className="mb-1.5">
               <WarningBadge s={s} />
             </div>
+          ) : (
+            s.diPO &&
+            s.warningAwal && (
+              <div className="mb-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                  <CheckCircle2 size={12} strokeWidth={2.5} /> Masuk PO · warning teratasi
+                </span>
+              </div>
+            )
           )}
           <div className="text-sm font-semibold leading-snug text-slate-900">{s.nama_sku}</div>
           <div className="mt-0.5 text-xs text-slate-500">
-            {s.kategori ?? s.divisi} · <span className="font-medium tabular text-slate-700">{formatRupiah(s.harga)}</span>/{s.satuan}
+            SAP {s.kode_sku} · {s.kategori ?? s.divisi} · <span className="font-medium tabular text-slate-700">{formatRupiah(s.harga)}</span>/{s.satuan}
           </div>
-          {s.warning !== 'BELUM_PERNAH' && <div className={cn('mt-1 text-xs', s.warning ? 'font-medium text-red-700' : 'text-slate-500')}>{teksTerakhirOrder(s)}</div>}
+          {s.warningAwal !== 'BELUM_PERNAH' && <div className={cn('mt-1 text-xs', s.warning ? 'font-medium text-red-700' : 'text-slate-500')}>{teksTerakhirOrder(s)}</div>}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {s.listed ? <Badge tone="brand" dot={false}>Listed MSL</Badge> : <Badge tone="gray" dot={false}>Tidak listed</Badge>}
             <Badge tone="gray" dot={false}>
-              MOQ {s.moq} {s.satuan}
-              {s.kelipatan > 1 ? ` · ×${s.kelipatan}` : ''}
+              Min. {s.moq} {s.satuan}
+              {s.kelipatan > 1 ? ` · kelipatan ${s.kelipatan}` : ''}
             </Badge>
           </div>
         </div>

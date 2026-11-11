@@ -1,16 +1,17 @@
-import { AlertTriangle, ArrowLeft, Ban, Check, CheckCircle2, ChevronDown, History, PackagePlus, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, History, PackagePlus, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HarusDitagih, InfoOutlet, KelompokFaktur, useDetailToko } from '../../components/DetailTokoView';
 import { PenagihanSheet } from '../../components/Penagihan';
-import { Badge, Button, Card, Chips, cn, EmptyState, Input, NumberStepper, SectionTitle, Segmented, Sheet, StatusBayarBadge, useToast } from '../../components/ui';
+import { Badge, Button, Card, cn, EmptyState, Input, NumberStepper, SectionTitle, Segmented, Sheet, StatusBayarBadge, useToast } from '../../components/ui';
+import { SkuPicker } from '../../components/SkuPicker';
 import { normKode, type FakturDinilai } from '../../lib/billing';
 import { ringkasPenagihan } from '../../lib/collection';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
-import { historiToko, suggestedQty, validasiPO } from '../../lib/order';
+import { bulatkanQty, historiToko, suggestedQty, teksBiasaOrder, validasiPO, type HistoriSku, type ProdukLengkap } from '../../lib/order';
 import { daftarSkuStok, validasiStok } from '../../lib/stock';
-import type { LangkahKunjungan, StokInternal, StokKompetitor } from '../../lib/types';
+import type { ItemPO, LangkahKunjungan, StokInternal, StokKompetitor } from '../../lib/types';
 import { cariKunjungan, isSelesai, LABEL_LANGKAH, LANGKAH } from '../../lib/visit';
 import { newId, useData } from '../../state';
 import { useSalesSession } from './session';
@@ -167,21 +168,24 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
   const toast = useToast();
   const existing = aktivitas.stok.find((s) => s.kode_toko === kodeToko && s.kode_salesman === sales && s.tanggal === D);
   const hist = useMemo(() => historiToko(data.histori, kodeToko, D), [data.histori, kodeToko, D]);
-  const list = useMemo(() => daftarSkuStok(produk, hist), [produk, hist]);
+  const kandidat = useMemo(() => daftarSkuStok(produk, hist).filter((p) => p.status_aktif !== false), [produk, hist]);
+  const byKode = useMemo(() => new Map(produk.map((p) => [p.kode_sku, p])), [produk]);
   const [tab, setTab] = useState<'internal' | 'kompetitor'>('internal');
-  const [divisi, setDivisi] = useState('Semua');
-  const [stok, setStok] = useState<Record<string, StokInternal>>(() => Object.fromEntries((existing?.internal ?? []).map((s) => [s.kode_sku, s])));
+  // Baris stok: dari cek stok sebelumnya, atau default SKU yang pernah dibeli toko.
+  const [stok, setStok] = useState<StokInternal[]>(() =>
+    existing?.internal.length ? existing.internal : kandidat.filter((p) => p.pernahDibeli).map((p) => ({ kode_sku: p.kode_sku, display: 0, backroom: 0 })),
+  );
   const [komp, setKomp] = useState<StokKompetitor[]>(() => (existing?.kompetitor.length ? existing.kompetitor : [{ nama_produk: '', qty: 0 }]));
   const [err, setErr] = useState<string[]>([]);
+  const terpilih = new Set(stok.map((s) => s.kode_sku));
 
-  const divisiList = ['Semua', ...Array.from(new Set(list.map((p) => p.divisi)))];
-  const tampil = list.filter((p) => divisi === 'Semua' || p.divisi === divisi);
-  const set = (kode: string, k: 'display' | 'backroom', v: number) =>
-    setStok((p) => ({ ...p, [kode]: { kode_sku: kode, display: p[kode]?.display ?? 0, backroom: p[kode]?.backroom ?? 0, [k]: v } }));
-  const terisi = Object.values(stok).filter((s) => s.display || s.backroom).length;
+  const tambah = (kode: string) => setStok((x) => (x.some((s) => s.kode_sku === kode) ? x : [{ kode_sku: kode, display: 0, backroom: 0 }, ...x]));
+  const set = (kode: string, k: 'display' | 'backroom', v: number) => setStok((x) => x.map((s) => (s.kode_sku === kode ? { ...s, [k]: v } : s)));
+  const terisi = stok.filter((s) => s.display || s.backroom).length;
+  const jumlahKomp = komp.filter((k) => k.nama_produk.trim()).length;
 
   const simpan = () => {
-    const v = validasiStok(Object.values(stok), komp);
+    const v = validasiStok(stok, komp);
     setErr(v.error);
     if (v.error.length) return;
     simpanStok({ id: existing?.id ?? newId(), kode_toko: kodeToko, kode_salesman: sales, tanggal: D, internal: v.internal, kompetitor: v.kompetitor, createdAt: new Date().toISOString() });
@@ -216,7 +220,7 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
         onChange={setTab}
         options={[
           { value: 'internal', label: `Produk Tigaraksa${terisi ? ` (${terisi})` : ''}` },
-          { value: 'kompetitor', label: `Kompetitor${komp.filter((k) => k.nama_produk.trim()).length ? ` (${komp.filter((k) => k.nama_produk.trim()).length})` : ''}` },
+          { value: 'kompetitor', label: `Kompetitor${jumlahKomp ? ` (${jumlahKomp})` : ''}` },
         ]}
       />
       {err.length > 0 && (
@@ -227,33 +231,50 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
 
       {tab === 'internal' ? (
         <>
-          <Chips label="Divisi" value={divisi} onChange={setDivisi} options={divisiList.map((x) => ({ value: x, label: x }))} />
-          <p className="px-1 text-xs text-slate-500">SKU yang pernah dibeli toko ditampilkan paling atas.</p>
-          <ul className="space-y-2">
-            {tampil.map((p) => (
-              <li key={p.kode_sku}>
-                <Card className="p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold leading-snug text-slate-900">{p.nama_sku}</div>
-                      <div className="text-xs text-slate-500">
-                        {p.kode_sku} · {p.divisi}
-                      </div>
-                    </div>
-                    {p.pernahDibeli && <Badge tone="brand" dot={false}>Pernah dibeli</Badge>}
-                  </div>
-                  <div className="mt-2.5 grid grid-cols-2 gap-2">
-                    {(['display', 'backroom'] as const).map((k) => (
-                      <div key={k} className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-slate-500">{k === 'display' ? 'Display (pajangan)' : 'Backroom (gudang)'}</span>
-                        <NumberStepper label={`${k} ${p.nama_sku}`} value={stok[p.kode_sku]?.[k] ?? 0} onChange={(v) => set(p.kode_sku, k, v)} />
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              </li>
-            ))}
-          </ul>
+          <SkuPicker produk={kandidat} terpilih={terpilih} onPilih={(p) => tambah(p.kode_sku)} label="Cari SKU untuk cek stok" />
+          {stok.length === 0 ? (
+            <EmptyState title="Belum ada SKU">Cari SKU berdasarkan kode SAP atau nama, lalu isi stok display & backroom.</EmptyState>
+          ) : (
+            <>
+              <p className="px-1 text-xs text-slate-500">{stok.length} SKU · SKU yang pernah dibeli toko otomatis ditambahkan.</p>
+              <ul className="space-y-2">
+                {stok.map((s) => {
+                  const p = byKode.get(s.kode_sku);
+                  return (
+                    <li key={s.kode_sku}>
+                      <Card className="p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold leading-snug text-slate-900">{p?.nama_sku ?? s.kode_sku}</div>
+                            <div className="text-xs text-slate-500">
+                              SAP {s.kode_sku}
+                              {p && ` · ${p.divisi}`}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Hapus ${p?.nama_sku ?? s.kode_sku}`}
+                            onClick={() => setStok((x) => x.filter((y) => y.kode_sku !== s.kode_sku))}
+                            className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                        <div className="mt-2.5 grid grid-cols-2 gap-2">
+                          {(['display', 'backroom'] as const).map((k) => (
+                            <div key={k} className="flex flex-col gap-1">
+                              <span className="text-xs font-medium text-slate-500">{k === 'display' ? 'Display (pajangan)' : 'Backroom (gudang)'}</span>
+                              <NumberStepper label={`${k} ${p?.nama_sku ?? s.kode_sku}`} value={s[k]} onChange={(v) => set(s.kode_sku, k, v)} />
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
         </>
       ) : (
         <>
@@ -297,43 +318,72 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
 
 // ───────────────────────── 3. Purchase Order ─────────────────────────
 
+/** Info histori yang mudah dibaca: "Biasa order ±4 Pcs/bulan · Terakhir 6 Pcs, 20 Okt 2026". */
+export function InfoHistori({ h, p }: { h?: HistoriSku; p: ProdukLengkap }) {
+  if (!h) return null;
+  const biasa = teksBiasaOrder(suggestedQty(h, p), p.satuan);
+  return (
+    <p className="text-xs text-slate-500">
+      {biasa && <span className="font-medium text-slate-700">{biasa}</span>}
+      {biasa && ' · '}Terakhir {h.qtyTerakhir} {p.satuan}, {formatTanggal(h.terakhir)}
+    </p>
+  );
+}
+
 function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) {
   const { kode: sales, D } = useSalesSession();
   const { data, produk, masterIdx, aktivitas, submitPO, tandai } = useData();
   const toast = useToast();
   const d = useDetailToko(kodeToko, D);
   const outlet = masterIdx.get(kodeToko);
+  const aktifProduk = useMemo(() => produk.filter((p) => p.status_aktif !== false), [produk]);
+  const byKode = useMemo(() => new Map(produk.map((p) => [p.kode_sku, p])), [produk]);
   const hist = useMemo(() => historiToko(data.histori, kodeToko, D), [data.histori, kodeToko, D]);
   const histMap = useMemo(() => new Map(hist.map((h) => [h.kode_sku, h])), [hist]);
   const [keranjang, setKeranjang] = useState<Record<string, number>>({});
-  const [divisi, setDivisi] = useState('Semua');
-  const [mode, setMode] = useState<'saran' | 'semua'>(hist.length ? 'saran' : 'semua');
+  const [urutanItem, setUrutanItem] = useState<string[]>([]);
   const [konfirmasi, setKonfirmasi] = useState(false);
-  const [lihatHist, setLihatHist] = useState(false);
   const poHariIni = aktivitas.po.filter((p) => p.kode_toko === kodeToko && p.tanggal === D);
 
   const v = validasiPO(keranjang, produk, outlet, d.totalOutstanding);
-  const divisiList = ['Semua', ...Array.from(new Set(produk.map((p) => p.divisi)))];
-  const tampil = produk
-    .filter((p) => (divisi === 'Semua' || p.divisi === divisi) && (mode === 'semua' || histMap.has(p.kode_sku) || keranjang[p.kode_sku]))
-    .sort((a, b) => Number(histMap.has(b.kode_sku)) - Number(histMap.has(a.kode_sku)) || a.divisi.localeCompare(b.divisi) || a.nama_sku.localeCompare(b.nama_sku));
-  const namaSku = (k: string) => produk.find((p) => p.kode_sku === k)?.nama_sku ?? k;
+  const diKeranjang = new Set(Object.keys(keranjang).filter((k) => keranjang[k] > 0));
+  const langganan = hist.filter((h) => byKode.get(h.kode_sku) && byKode.get(h.kode_sku)!.status_aktif !== false && !diKeranjang.has(h.kode_sku));
 
+  const qtyAwal = (p: ProdukLengkap) => suggestedQty(histMap.get(p.kode_sku), p).qty || bulatkanQty(p.moq, p);
+  const tambah = (p: ProdukLengkap, qty = qtyAwal(p)) => {
+    setKeranjang((k) => ({ ...k, [p.kode_sku]: k[p.kode_sku] || qty }));
+    setUrutanItem((u) => (u.includes(p.kode_sku) ? u : [p.kode_sku, ...u]));
+  };
+  const setQty = (kode: string, n: number) => setKeranjang((k) => ({ ...k, [kode]: n }));
+  const hapus = (kode: string) => {
+    setKeranjang(({ [kode]: _, ...rest }) => (void _, rest));
+    setUrutanItem((u) => u.filter((x) => x !== kode));
+  };
   const isiSaran = () => {
-    const next: Record<string, number> = { ...keranjang };
-    for (const p of produk) {
-      const s = suggestedQty(histMap.get(p.kode_sku), p);
-      if (s.qty > 0) next[p.kode_sku] = s.qty;
+    for (const h of langganan) {
+      const p = byKode.get(h.kode_sku)!;
+      const q = suggestedQty(h, p).qty;
+      if (q > 0) tambah(p, q);
     }
-    setKeranjang(next);
   };
 
   const kirim = () => {
-    const po = submitPO({ id: newId(), kode_toko: kodeToko, kode_salesman: sales, tanggal: D, items: v.items, total: v.total, status: 'TERKIRIM', createdAt: new Date().toISOString() });
+    const po = submitPO({
+      id: newId(),
+      kode_toko: kodeToko,
+      kode_salesman: sales,
+      tanggal: D,
+      items: v.items,
+      total: v.total,
+      status: 'TERKIRIM',
+      ...(v.kredit.peringatan ? { berpotensi_tidak_release: true } : {}),
+      createdAt: new Date().toISOString(),
+    });
     tandai(sales, kodeToko, D, 'po', 'SELESAI');
     setKonfirmasi(false);
     setKeranjang({});
-    toast(`${po.no_po} terkirim ke ERP`);
+    setUrutanItem([]);
+    toast(`${po.no_po} berhasil disubmit`);
     onNext();
   };
   const lewati = () => {
@@ -354,10 +404,13 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
     );
   }
 
+  const items = urutanItem.filter((k) => diKeranjang.has(k) || keranjang[k] === 0).map((k) => byKode.get(k)!).filter(Boolean);
+
   return (
     <>
-      <KreditCard blokir={!!outlet?.status_blokir} limit={outlet?.limit_kredit} outstanding={d.totalOutstanding} totalPO={v.total} />
-      {!v.kredit.boleh && v.items.length > 0 && !outlet?.status_blokir && (
+      {v.kredit.peringatan && <BlokirBanner />}
+      {outlet?.tipe_bayar !== 'TUNAI' && outlet?.limit_kredit !== undefined && <KreditCard limit={outlet.limit_kredit} outstanding={d.totalOutstanding} totalPO={v.total} />}
+      {!v.kredit.boleh && v.items.length > 0 && (
         <p role="alert" className="flex items-start gap-1.5 rounded-xl bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {v.kredit.alasan}
         </p>
@@ -375,118 +428,87 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
         </Card>
       )}
 
-      {hist.length > 0 && (
-        <Card className="p-3">
-          <button type="button" onClick={() => setLihatHist((x) => !x)} className="flex w-full items-center justify-between text-sm font-semibold text-slate-700" aria-expanded={lihatHist}>
-            <span className="inline-flex items-center gap-2">
-              <History size={16} /> Riwayat pembelian 6 bulan ({hist.length} SKU)
-            </span>
-            <ChevronDown size={16} className={cn('transition-transform', lihatHist && 'rotate-180')} />
-          </button>
-          {lihatHist && (
-            <ul className="mt-2 divide-y divide-slate-100">
-              {hist.map((h) => (
-                <li key={h.kode_sku} className="flex items-center justify-between gap-3 py-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-slate-900">{namaSku(h.kode_sku)}</div>
-                    <div className="text-xs text-slate-500">
-                      {h.jumlahOrder}× order · terakhir {formatTanggal(h.terakhir)}
-                    </div>
-                  </div>
-                  <MiniBars values={h.perBulan} />
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      )}
+      <SkuPicker produk={aktifProduk} terpilih={diKeranjang} onPilih={(p) => tambah(p)} label="Cari SKU untuk PO" />
 
-      <div className="flex items-center justify-between gap-2">
-        <Segmented
-          label="Tampilkan"
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'saran', label: `Langganan · ${hist.length}` },
-            { value: 'semua', label: 'Semua' },
-          ]}
-        />
-        {hist.length > 0 && (
-          <Button size="sm" variant="ghost" onClick={isiSaran} className="text-brand-700">
-            <Sparkles size={15} /> Isi saran
-          </Button>
-        )}
-      </div>
-      <Chips label="Divisi" value={divisi} onChange={setDivisi} options={divisiList.map((x) => ({ value: x, label: x }))} />
-
-      {tampil.length === 0 ? (
-        <EmptyState title="Tidak ada SKU">Pilih "Semua SKU" untuk melihat seluruh katalog.</EmptyState>
-      ) : (
-        <ul className="space-y-2">
-          {tampil.map((p) => {
-            const h = histMap.get(p.kode_sku);
-            const s = suggestedQty(h, p);
-            const qty = keranjang[p.kode_sku] ?? 0;
-            const e = v.errorItem[p.kode_sku];
-            return (
-              <li key={p.kode_sku}>
-                <Card className={cn('p-3', e && 'border-red-200')}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold leading-snug text-slate-900">{p.nama_sku}</div>
-                      <div className="text-xs text-slate-500">
-                        {p.kode_sku} · {p.divisi}
+      {items.length > 0 && (
+        <section>
+          <SectionTitle right={`${v.items.length} SKU`}>Item PO</SectionTitle>
+          <ul className="space-y-2">
+            {items.map((p) => {
+              const qty = keranjang[p.kode_sku] ?? 0;
+              const e = v.errorItem[p.kode_sku];
+              return (
+                <li key={p.kode_sku}>
+                  <Card className={cn('p-3', e && 'border-red-200')}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold leading-snug text-slate-900">{p.nama_sku}</div>
+                        <div className="text-xs text-slate-500">
+                          SAP {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
+                        </div>
                       </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm font-semibold tabular text-slate-900">{formatRupiah(p.harga)}</div>
-                      <div className="text-xs text-slate-500">/{p.satuan}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Badge tone="gray" dot={false}>
-                      MOQ {p.moq} {p.satuan}
-                      {p.kelipatan > 1 ? ` · kelipatan ${p.kelipatan}` : ''}
-                    </Badge>
-                    {h && (
-                      <Badge tone="gray" dot={false}>
-                        ±{s.rataBulanan.toLocaleString('id-ID')}/bln · {s.basis}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="mt-2.5 flex items-center justify-between gap-2">
-                    {s.qty > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setKeranjang((k) => ({ ...k, [p.kode_sku]: s.qty }))}
-                        className={cn('inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold', qty === s.qty ? 'bg-emerald-50 text-emerald-700' : 'bg-brand-50 text-brand-700 hover:bg-brand-100')}
-                      >
-                        <Sparkles size={13} /> Saran {s.qty}
+                      <button type="button" aria-label={`Hapus ${p.nama_sku}`} onClick={() => hapus(p.kode_sku)} className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
+                        <Trash2 size={15} />
                       </button>
-                    ) : (
-                      <span className="text-xs text-slate-400">Belum pernah dibeli</span>
+                    </div>
+                    <div className="mt-1.5 space-y-1">
+                      <Badge tone="gray" dot={false}>
+                        Min. {p.moq} {p.satuan}
+                        {p.kelipatan > 1 ? ` · kelipatan ${p.kelipatan}` : ''}
+                      </Badge>
+                      <InfoHistori h={histMap.get(p.kode_sku)} p={p} />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <NumberStepper label={`qty ${p.nama_sku}`} value={qty} step={p.kelipatan} onIncrementFromZero={p.moq} invalid={!!e} onChange={(n) => setQty(p.kode_sku, n)} />
+                      <span className="text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * p.harga)}</span>
+                    </div>
+                    {e && (
+                      <p role="alert" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700">
+                        <AlertTriangle size={14} className="mt-px shrink-0" /> {e}
+                      </p>
                     )}
-                    <NumberStepper
-                      label={`qty ${p.nama_sku}`}
-                      value={qty}
-                      step={p.kelipatan}
-                      onIncrementFromZero={p.moq}
-                      invalid={!!e}
-                      onChange={(n) => setKeranjang((k) => ({ ...k, [p.kode_sku]: n }))}
-                    />
-                  </div>
-                  {e && (
-                    <p role="alert" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700">
-                      <AlertTriangle size={14} className="mt-px shrink-0" /> {e}
-                    </p>
-                  )}
-                  {qty > 0 && !e && <p className="mt-1.5 text-right text-xs tabular text-slate-500">Subtotal {formatRupiah(qty * p.harga)}</p>}
-                </Card>
-              </li>
-            );
-          })}
-        </ul>
+                  </Card>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
+
+      {langganan.length > 0 && (
+        <section>
+          <SectionTitle
+            right={
+              <button type="button" onClick={isiSaran} className="inline-flex items-center gap-1 text-sm font-semibold text-brand-700">
+                <Sparkles size={14} /> Isi semua
+              </button>
+            }
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <History size={15} /> Langganan toko
+            </span>
+          </SectionTitle>
+          <Card className="divide-y divide-slate-100 px-3">
+            {langganan.map((h) => {
+              const p = byKode.get(h.kode_sku)!;
+              const saran = suggestedQty(h, p).qty;
+              return (
+                <div key={h.kode_sku} className="flex items-center gap-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-slate-900">{p.nama_sku}</div>
+                    <InfoHistori h={h} p={p} />
+                  </div>
+                  <button type="button" onClick={() => tambah(p, saran || undefined)} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-brand-50 px-2.5 text-xs font-semibold text-brand-700 hover:bg-brand-100" aria-label={`Tambah ${p.nama_sku}`}>
+                    <Plus size={14} /> {saran ? `${saran} ${p.satuan}` : 'Tambah'}
+                  </button>
+                </div>
+              );
+            })}
+          </Card>
+        </section>
+      )}
+
+      {items.length === 0 && langganan.length === 0 && <EmptyState title="Belum ada item">Cari SKU berdasarkan kode SAP atau nama untuk mulai input PO.</EmptyState>}
 
       <ActionBar>
         <div className="min-w-0 flex-1">
@@ -500,63 +522,80 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
           <PackagePlus size={18} /> Submit
         </Button>
       </ActionBar>
-      <Sheet
-        open={konfirmasi}
-        onClose={() => setKonfirmasi(false)}
-        title="Konfirmasi Purchase Order"
-        footer={
-          <Button block size="lg" onClick={kirim}>
-            Kirim ke ERP · {formatRupiah(v.total)}
-          </Button>
-        }
-      >
-        <ul className="divide-y divide-slate-100">
-          {v.items.map((i) => (
-            <li key={i.kode_sku} className="flex items-start justify-between gap-3 py-2.5">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-slate-900">{i.nama_sku}</div>
-                <div className="text-xs tabular text-slate-500">
-                  {i.qty} {i.satuan} × {formatRupiah(i.harga)}
-                </div>
-              </div>
-              <div className="shrink-0 text-sm font-semibold tabular">{formatRupiah(i.subtotal)}</div>
-            </li>
-          ))}
-        </ul>
-        <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3 text-base font-bold">
-          <span>Total</span>
-          <span className="tabular">{formatRupiah(v.total)}</span>
-        </div>
-      </Sheet>
+
+      <KonfirmasiPO open={konfirmasi} onClose={() => setKonfirmasi(false)} items={v.items} total={v.total} peringatan={v.kredit.peringatan} onSubmit={kirim} />
     </>
   );
 }
 
-function MiniBars({ values }: { values: number[] }) {
-  const max = Math.max(1, ...values);
+/** Sheet konfirmasi PO (GT & MT). */
+export function KonfirmasiPO({
+  open,
+  onClose,
+  items,
+  total,
+  peringatan,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  items: ItemPO[];
+  total: number;
+  peringatan?: string | null;
+  onSubmit: () => void;
+}) {
   return (
-    <div className="flex h-7 shrink-0 items-end gap-0.5" aria-label={`Qty 6 bulan: ${values.join(', ')}`}>
-      {values.map((v, i) => (
-        <span key={i} className={cn('w-1.5 rounded-sm', v ? 'bg-brand-400' : 'bg-slate-200')} style={{ height: `${Math.max(12, (v / max) * 100)}%` }} />
-      ))}
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Konfirmasi Purchase Order"
+      footer={
+        <Button block size="lg" onClick={onSubmit}>
+          Submit PO · {formatRupiah(total)}
+        </Button>
+      }
+    >
+      {peringatan && (
+        <p className="mb-2 flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {peringatan}
+        </p>
+      )}
+      <ul className="divide-y divide-slate-100">
+        {items.map((i) => (
+          <li key={i.kode_sku} className="flex items-start justify-between gap-3 py-2.5">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-900">{i.nama_sku}</div>
+              <div className="text-xs tabular text-slate-500">
+                SAP {i.kode_sku} · {i.qty} {i.satuan} × {formatRupiah(i.harga)}
+              </div>
+            </div>
+            <div className="shrink-0 text-sm font-semibold tabular">{formatRupiah(i.subtotal)}</div>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3 text-base font-bold">
+        <span>Total</span>
+        <span className="tabular">{formatRupiah(total)}</span>
+      </div>
+    </Sheet>
+  );
+}
+
+/** Toko diblokir: PO tetap bisa disubmit, tapi berpotensi tidak release. */
+export function BlokirBanner() {
+  return (
+    <div role="alert" className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+      <AlertTriangle size={20} className="mt-0.5 shrink-0 text-amber-600" />
+      <div>
+        <div className="font-semibold">PO berpotensi tidak release</div>
+        <div className="text-sm">Selesaikan tagihan atau hubungi admin.</div>
+      </div>
     </div>
   );
 }
 
-export function KreditCard({ blokir, limit, outstanding, totalPO }: { blokir: boolean; limit?: number; outstanding: number; totalPO: number }) {
-  if (blokir)
-    return (
-      <div className="flex items-start gap-3 rounded-2xl bg-red-600 p-4 text-white">
-        <Ban size={20} className="mt-0.5 shrink-0" />
-        <div>
-          <div className="font-semibold">Toko diblokir</div>
-          <div className="text-sm opacity-90">PO baru tidak dapat dibuat. Selesaikan tagihan atau hubungi admin.</div>
-        </div>
-      </div>
-    );
-  if (limit === undefined) return null;
-  const sisa = limit - outstanding;
-  const sisaSetelah = sisa - totalPO;
+export function KreditCard({ limit, outstanding, totalPO }: { limit: number; outstanding: number; totalPO: number }) {
+  const sisaSetelah = limit - outstanding - totalPO;
   return (
     <Card className="p-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">

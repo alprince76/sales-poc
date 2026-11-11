@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import type { FakturDinilai } from '../lib/billing';
 import { ALASAN_BAD_DEBT, buatPenagihan, getPenagihanTerakhir, LABEL_STATUS_BAYAR, penagihanTerakhir, validasiPenagihan, type InputPenagihan } from '../lib/collection';
 import { addDays, formatTanggal, type ISODate } from '../lib/dates';
+import { namaDivisi, tanggalDMY } from '../lib/divisi';
 import { formatRupiah } from '../lib/format';
 import type { Penagihan, StatusBayar } from '../lib/types';
 import { newId, useData } from '../state';
@@ -14,13 +15,25 @@ export function usePenagihanTerakhir() {
   return useMemo(() => penagihanTerakhir(aktivitas.penagihan), [aktivitas.penagihan]);
 }
 
+/** Chip kode divisi faktur (DNE / CBN / MRS …), nama lengkap di tooltip & screen reader. */
+export function DivisiChip({ kode }: { kode: string }) {
+  const nama = namaDivisi(kode);
+  return (
+    <span title={nama} className="mb-0.5 inline-flex items-center rounded-md bg-slate-800 px-1.5 py-px text-[11px] font-bold tracking-wide text-white">
+      {kode.toUpperCase()}
+      <span className="sr-only"> ({nama})</span>
+    </span>
+  );
+}
+
 export function FakturCard({ f, last, onClick, subtitle }: { f: FakturDinilai; last?: Penagihan; onClick?: () => void; subtitle?: string }) {
   const body = (
     <>
       <div className="min-w-0 flex-1">
         {subtitle && <div className="truncate text-sm font-semibold text-slate-900">{subtitle}</div>}
+        {f.divisi && <DivisiChip kode={f.divisi} />}
         <div className={cn('truncate font-mono text-[13px]', subtitle ? 'text-slate-500' : 'text-slate-900')}>{f.no_faktur}</div>
-        <div className="mt-0.5 text-xs text-slate-500">JT {formatTanggal(f.tanggal_jatuh_tempo)}</div>
+        <div className="mt-0.5 text-xs text-slate-500">JT {tanggalDMY(f.tanggal_jatuh_tempo)}</div>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           <StatusFakturBadge status={f.status} hariTerlambat={f.hariTerlambat} />
           {last && <StatusBayarBadge p={last} />}
@@ -84,9 +97,15 @@ function PenagihanForm({ faktur, kodeSalesman, D, onDone }: { faktur: FakturDini
   return (
     <div className="space-y-4">
       <div className="rounded-2xl bg-slate-50 p-3">
+        {faktur.divisi && (
+          <div className="flex items-center gap-1.5">
+            <DivisiChip kode={faktur.divisi} />
+            <span className="text-xs text-slate-500">{namaDivisi(faktur.divisi)}</span>
+          </div>
+        )}
         <div className="font-mono text-sm text-slate-900">{faktur.no_faktur}</div>
         <div className="mt-0.5 text-xs text-slate-500">
-          Faktur {formatTanggal(faktur.tanggal_faktur)} · JT {formatTanggal(faktur.tanggal_jatuh_tempo)}
+          Faktur {tanggalDMY(faktur.tanggal_faktur)} · JT {tanggalDMY(faktur.tanggal_jatuh_tempo)}
         </div>
         <div className="mt-2 flex items-end justify-between gap-2">
           <StatusFakturBadge status={faktur.status} hariTerlambat={faktur.hariTerlambat} />

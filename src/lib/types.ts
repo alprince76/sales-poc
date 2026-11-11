@@ -15,6 +15,10 @@ export interface MasterToko {
   status_blokir?: boolean;
   /** "GT" (General Trade) / "MT" (Modern Trade). Kosong = GT. */
   channel?: string;
+  /** TUNAI / KREDIT. Kosong = KREDIT. */
+  tipe_bayar?: string;
+  /** Term of Payment (hari). 0 = tunai. */
+  top_hari?: number;
 }
 
 /** Satu baris ROVI = satu faktur. Uang = integer rupiah. */
@@ -26,6 +30,8 @@ export interface Faktur {
   tanggal_jatuh_tempo: ISODate;
   nilai_faktur: number;
   sisa_tagihan: number;
+  /** Kode divisi faktur, mis. DNE / CBN / MRS. */
+  divisi?: string;
 }
 
 /** Satu baris PJP = satu jadwal kunjungan. */
@@ -149,6 +155,8 @@ export interface PurchaseOrder {
   items: ItemPO[];
   total: number;
   status: 'TERKIRIM';
+  /** Toko diblokir saat PO dibuat → PO berpotensi tidak release. */
+  berpotensi_tidak_release?: boolean;
   createdAt: string;
 }
 

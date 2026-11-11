@@ -88,8 +88,8 @@ export function MslPage() {
                 </option>
               ))}
             </Select>
-            <Select label="Divisi" value={divisi} onChange={setDivisi}>
-              <option value="">Semua divisi</option>
+            <Select label="Principal" value={divisi} onChange={setDivisi}>
+              <option value="">Semua principal</option>
               {semuaDivisi.map((d) => (
                 <option key={d} value={d}>
                   {d}

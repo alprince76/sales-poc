@@ -49,7 +49,9 @@ describe('Regresi Dummy_ROVI_PJP.xlsx', () => {
     expect(ds.pjp.filter((p) => !p.kode_toko.startsWith('MT'))).toHaveLength(1399);
     expect(ds.pjp.filter((p) => p.kode_toko.startsWith('MT'))).toHaveLength(60);
     expect(ds.msl.length).toBeGreaterThan(900);
-    expect(ds.produk.filter((p) => p.status_aktif === false).map((p) => p.kode_sku)).toEqual(['YUP-009', 'HUK-008', 'KOE-009']);
+    expect(ds.produk.filter((p) => p.status_aktif === false).map((p) => p.kode_sku)).toEqual(['10202153', '10302136', '10402153']);
+    expect(ds.rovi.every((f) => ['DNE', 'CBN', 'MRS'].includes(f.divisi ?? ''))).toBe(true);
+    expect(ds.master.find((m) => m.kode_toko === 'TK00236')).toMatchObject({ tipe_bayar: 'KREDIT', top_hari: 30 });
     expect(ds.produk).toHaveLength(40);
     expect(ds.rules).toHaveLength(40);
     expect(ds.histori.length).toBeGreaterThan(10_000);

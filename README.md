@@ -5,7 +5,7 @@ Satu repo, tiga aplikasi (beda route, berbagi data master, modul PO, UI kit, dan
 | Aplikasi | Route | Untuk |
 |---|---|---|
 | **Sales GT** | `/sales` | SR General Trade: rute PJP → **Collection → Cek Stok → PO → Selesai** |
-| **Sales MT** | `/mt` | SR Modern Trade: **Must Stock List** — warning SKU listed yang tidak ada transaksi > 30 hari → langsung Add to PO |
+| **Sales MT** | `/mt` | SR Modern Trade: **Input PO → Cek MSL** (warning SKU listed yang belum ditransaksikan > 30 hari, memperhitungkan PO yang sedang dibuat) **→ Summary & Submit PO** |
 | **Web Admin** | `/admin` | Supervisor GT & MT (filter channel) |
 
 `/` = halaman pilih aplikasi. Channel ditentukan kolom `channel` (GT/MT) di Master Outlet.
@@ -30,7 +30,7 @@ Buka URL yang muncul (biasanya http://localhost:5173):
 | `/sales` | SR (mobile-first, 360px) | Bottom nav: **Rute** · **Tagihan** · **Toko** · **Aktivitas** |
 | `/sales/kunjungan/:kode_toko` | SR | Stepper kunjungan Collection → Stok → PO → Selesai |
 | `/mt` | SR MT (mobile) | Bottom nav: **Rute** · **Toko** · **Order** · **Aktivitas** |
-| `/mt/toko/:kode` → `/divisi/:divisi` → `/po` | SR MT | Grid divisi (counter warning) → daftar SKU MSL (warning dipin) → keranjang PO |
+| `/mt/toko/:kode?step=po\|msl\|summary` | SR MT | Stepper: Input PO (cari SKU) → Cek MSL (grid principal + SKU warning) → Summary (MSL sebelum→sesudah) & Submit PO |
 | `/admin` | Admin / supervisor (responsive) | Dashboard · Rute Salesman · Toko & Faktur · Penagihan · Purchase Order · Cek Stok · **MSL Compliance (MT)** · Data & Upload |
 
 Saat pertama dibuka, data dimuat dari `public/Dummy_ROVI_PJP.xlsx`. Tanggal default **9 Nov 2026**, karena PJP dummy berisi 9–14 Nov 2026.
@@ -52,12 +52,19 @@ npm run build     # typecheck + build produksi ke dist/
 7. Toko diblokir untuk demo: `TK00054 BINTANG STORE`, `TK00200 SRC EKA`. Limit tipis: `TK00090`, `TK00143`.
 
 ## Alur demo MT (±1 menit)
-1. `/mt`: SR **Rina (SLSM01)**, Senin 9 Nov: 5 toko; kartu menampilkan "Ada N SKU Belum Transaksi".
-2. Buka toko → grid divisi dengan counter "N SKU Untransacted" → pilih divisi.
-3. SKU warning dipin teratas: "⚠️ No Order > 30 Hari" + "Terakhir order: 22 Agu 2026 (79 hari lalu)" atau "Belum pernah order".
-4. Tekan **+ PO** (qty = saran histori / MOQ) → **Lihat PO** → Submit → Kirim ke ERP.
-5. Kembali ke toko: warning SKU yang dipesan **langsung hilang** dan counter berkurang.
-6. `/admin/msl`: % MSL aktif per toko, detail SKU, export CSV. Dashboard/PO/Rute bisa difilter GT/MT.
+1. `/mt`: SR **Rina (SLSM01)**, Senin 9 Nov: kartu toko menampilkan "Ada N SKU Belum Transaksi".
+2. Buka toko → **1. Input PO**: cari SKU by **kode SAP atau nama** → atur qty (validasi MOQ/kelipatan, tanpa limit kredit).
+3. **2. Cek MSL**: pilih **principal**; SKU listed yang belum transaksi > 30 hari dipin teratas. SKU yang sudah ada di PO
+   berubah jadi "Masuk PO · warning teratasi". Tekan **+ PO** untuk menambah SKU warning.
+4. **3. Summary**: MSL aktif sebelum → sesudah PO, SKU yang masih belum transaksi, rincian PO → **Submit PO · Rp …**.
+5. Rute & admin `/admin/msl` langsung ter-update (warning dinamis).
+
+## Catatan tampilan (feedback user)
+- Kartu faktur: **kode divisi** (DNE = Danone, CBN = Combine, MRS = Mars; kode lain tampil apa adanya) → no faktur → `JT dd/mm/yyyy` → status.
+- Toko: badge **TUNAI / KREDIT · TOP n hari**. Limit kredit hanya untuk toko KREDIT GT; toko TUNAI dan MT tanpa limit.
+- Toko diblokir (GT): banner **"PO berpotensi tidak release — Selesaikan tagihan atau hubungi admin"**; PO tetap bisa disubmit dan ditandai di admin.
+- Pilih SKU (Cek Stok, PO GT/MT): combobox cari **kode SAP atau nama**. Info histori: "Biasa order ±N Pcs/bulan · Terakhir …".
+- Tombol konfirmasi: **"Submit PO · Rp …"**.
 
 ## Data (Admin → Data & Upload)
 
@@ -66,10 +73,10 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
 
 | Data | Sheet | Kolom wajib | Opsional |
 |---|---|---|---|
-| Master Outlet | `Master_Toko` | kode_salesman, nama_salesman, kode_toko, nama_toko | salesman_bw, area, alamat, tipe_outlet, limit_kredit, status_blokir (YA/TIDAK), channel (GT/MT) |
-| ROVI (AR) | `ROVI` | kode_toko, nama_toko, no_faktur, tanggal_faktur, tanggal_jatuh_tempo, nilai_faktur, sisa_tagihan | |
+| Master Outlet | `Master_Toko` | kode_salesman, nama_salesman, kode_toko, nama_toko | salesman_bw, area, alamat, tipe_outlet, limit_kredit, status_blokir (YA/TIDAK), channel (GT/MT), tipe_bayar (TUNAI/KREDIT), top_hari |
+| ROVI (AR) | `ROVI` | kode_toko, nama_toko, no_faktur, tanggal_faktur, tanggal_jatuh_tempo, nilai_faktur, sisa_tagihan | divisi (DNE/CBN/MRS/…) |
 | PJP | `PJP` | kode_salesman, nama_salesman, tanggal_kunjungan, kode_toko | hari, nama_toko, urutan |
-| Master Produk | `Produk` | kode_sku, nama_sku, divisi, harga | kategori, channel (GT/MT), status_aktif (YA/TIDAK) |
+| Master Produk | `Produk` | kode_sku (kode SAP), nama_sku, divisi (= principal), harga | kategori, channel (GT/MT), status_aktif (YA/TIDAK) |
 | Order Rules | `Order_Rules` | kode_sku, satuan, moq | kelipatan |
 | Historical Sales | `Histori_Sales` | kode_toko, kode_sku, tanggal_po, qty | |
 | MSL (Toko – SKU Listing) | `MSL` | kode_toko, kode_sku, status_listed (YES/NO) | |
@@ -77,7 +84,7 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
 - Tanggal: tanggal Excel, `YYYY-MM-DD`, atau `D/M/YYYY`. Uang: bilangan bulat rupiah.
 - Kolom wajib hilang → file ditolak. Baris error ditampilkan dengan nomor baris Excel → **Simpan baris valid saja** / **Batal**.
 - Data dummy tidak disimpan di `localStorage` (dimuat ulang dari file). Data hasil upload disimpan, dan muncul peringatan bila melebihi kuota browser.
-- Dummy dibuat oleh `node scripts/gen-dummy.mjs` dari `docs/original/Dummy_ROVI_PJP.xlsx`: data GT asli tidak diubah; ditambah 2 SR MT (SLSM01 Rina, SLSM02 Dodi), 60 outlet MT, PJP MT, sheet MSL, dan 3 SKU non-aktif.
+- Dummy dibuat oleh `node scripts/gen-dummy.mjs` dari `docs/original/Dummy_ROVI_PJP.xlsx`: data GT asli tidak diubah; ditambah 2 SR MT (SLSM01 Rina, SLSM02 Dodi), 60 outlet MT, PJP MT, sheet MSL, 3 SKU non-aktif, kode SAP 8 digit, divisi faktur, dan TUNAI/KREDIT + TOP.
 
 ## Aturan bisnis
 

@@ -1,8 +1,8 @@
 import { Check, Download, Minus, Search } from 'lucide-react';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
-import { DetailTokoView } from '../../components/DetailTokoView';
+import { BayarBadge, DetailTokoView } from '../../components/DetailTokoView';
 import { useKunjungan } from '../../components/KunjunganPanel';
-import { usePenagihanTerakhir } from '../../components/Penagihan';
+import { DivisiChip, usePenagihanTerakhir } from '../../components/Penagihan';
 import { Badge, Button, Card, cn, DateNav, EmptyState, Input, Select, StatusBayarBadge, StatusTokoBadge, SummaryCard, ProgressBar } from '../../components/ui';
 import { daftarToko } from '../../lib/billing';
 import { getPenagihanTerakhir, LABEL_STATUS_BAYAR, ringkasPenagihan } from '../../lib/collection';
@@ -82,6 +82,8 @@ export function TokoFakturPage() {
           nama_toko: r.nama_toko,
           salesman: r.kode_salesman,
           tipe_outlet: masterIdx.get(r.kode_toko)?.tipe_outlet ?? '',
+          tipe_bayar: masterIdx.get(r.kode_toko)?.tipe_bayar ?? '',
+          top_hari: masterIdx.get(r.kode_toko)?.top_hari ?? '',
           faktur_aktif: r.jumlahFakturAktif,
           total_outstanding: r.totalOutstanding,
           total_overdue: r.totalOverdue,
@@ -127,6 +129,7 @@ export function TokoFakturPage() {
               <tr>
                 <th>Toko</th>
                 <th>Salesman</th>
+                <th>Bayar</th>
                 <th className="text-right">Faktur</th>
                 <th className="text-right">Outstanding</th>
                 <th className="text-right">Overdue</th>
@@ -149,6 +152,9 @@ export function TokoFakturPage() {
                     </div>
                   </td>
                   <td className="whitespace-nowrap text-slate-600">{r.nama_salesman || '–'}</td>
+                  <td>
+                    <BayarBadge tipe={m?.tipe_bayar} top={m?.top_hari} />
+                  </td>
                   <td className="text-right tabular">{r.jumlahFakturAktif}</td>
                   <td className="whitespace-nowrap text-right tabular">{formatRupiah(r.totalOutstanding)}</td>
                   <td className="whitespace-nowrap text-right tabular">{r.totalOverdue ? formatRupiah(r.totalOverdue) : '–'}</td>
@@ -407,7 +413,8 @@ function RuteGT({ sales, D, actions }: { sales: string; D: string; actions: Reac
 // ───────────────────────── Penagihan ─────────────────────────
 
 export function PenagihanPage() {
-  const { aktivitas, masterIdx, salesmen } = useData();
+  const { aktivitas, masterIdx, salesmen, raw } = useData();
+  const divisiFaktur = useMemo(() => new Map(raw.rovi.map((f) => [f.no_faktur, f.divisi ?? ''])), [raw.rovi]);
   const [sales, setSales] = useState('');
   const [status, setStatus] = useState<'' | StatusBayar>('');
   const [tgl, setTgl] = useState('');
@@ -431,6 +438,7 @@ export function PenagihanPage() {
           kode_toko: p.kode_toko,
           nama_toko: nama(p.kode_toko),
           no_faktur: p.no_faktur,
+          divisi: divisiFaktur.get(p.no_faktur) ?? '',
           status: LABEL_STATUS_BAYAR[p.status],
           nominal: p.nominal,
           tanggal_janji: p.tanggal_janji ?? '',
@@ -494,7 +502,9 @@ export function PenagihanPage() {
                 <div className="font-medium text-slate-900">{nama(p.kode_toko)}</div>
                 <div className="font-mono text-xs text-slate-500">{p.kode_toko}</div>
               </td>
-              <td className="font-mono text-xs">{p.no_faktur}</td>
+              <td className="font-mono text-xs">
+                {divisiFaktur.get(p.no_faktur) && <DivisiChip kode={divisiFaktur.get(p.no_faktur)!} />} {p.no_faktur}
+              </td>
               <td>
                 <StatusBayarBadge p={p} />
               </td>
@@ -543,6 +553,7 @@ export function POPage() {
             harga: i.harga,
             subtotal: i.subtotal,
             total_po: p.total,
+            berpotensi_tidak_release: p.berpotensi_tidak_release ? 'YA' : 'TIDAK',
           })),
         ),
       ),
@@ -573,8 +584,8 @@ export function POPage() {
             <option value="MT">Modern Trade</option>
           </Select>
           <SalesSelect value={sales} onChange={setSales} />
-          <Select label="Divisi" value={divisi} onChange={setDivisi}>
-            <option value="">Semua divisi</option>
+          <Select label="Principal" value={divisi} onChange={setDivisi}>
+            <option value="">Semua principal</option>
             {semuaDivisi.map((d) => (
               <option key={d} value={d}>
                 {d}
@@ -612,7 +623,10 @@ export function POPage() {
                 <td className="text-right tabular">{p.items.length}</td>
                 <td className="whitespace-nowrap text-right font-semibold tabular">{formatRupiah(p.total)}</td>
                 <td>
-                  <Badge tone="green">Terkirim ke ERP</Badge>
+                  <div className="flex flex-wrap gap-1">
+                    <Badge tone="green">Submitted</Badge>
+                    {p.berpotensi_tidak_release && <Badge tone="orange">Berpotensi tidak release</Badge>}
+                  </div>
                 </td>
               </tr>
               {buka === p.id && (
@@ -622,7 +636,7 @@ export function POPage() {
                       {p.items.map((i) => (
                         <li key={i.kode_sku} className="flex justify-between gap-3 py-1.5 text-xs">
                           <span>
-                            <span className="font-mono text-slate-500">{i.kode_sku}</span> {i.nama_sku} <span className="text-slate-500">· {i.divisi}</span>
+                            <span className="font-mono text-slate-500">SAP {i.kode_sku}</span> {i.nama_sku} <span className="text-slate-500">· {i.divisi}</span>
                           </span>
                           <span className="whitespace-nowrap tabular">
                             {i.qty} {i.satuan} × {formatRupiah(i.harga)} = <span className="font-semibold">{formatRupiah(i.subtotal)}</span>

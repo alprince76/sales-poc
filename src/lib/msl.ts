@@ -17,7 +17,12 @@ export interface SkuMSL extends ProdukLengkap {
   lastOrder: ISODate | null;
   /** D − lastOrder; null bila belum pernah order. */
   hariSejak: number | null;
+  /** Warning sebelum memperhitungkan keranjang PO yang sedang dibuat. */
+  warningAwal: WarningMSL;
+  /** Warning setelah keranjang diperhitungkan (SKU di keranjang = akan ditransaksikan). */
   warning: WarningMSL;
+  /** SKU ada di keranjang PO saat ini. */
+  diPO: boolean;
 }
 
 /** Index transaksi per toko: kode_toko → (kode_sku → daftar tanggal). Histori + PO aplikasi. */
@@ -71,6 +76,7 @@ export function nilaiWarning(listed: boolean, hariSejak: number | null): Warning
 
 const bandingSku = (a: SkuMSL, b: SkuMSL) =>
   Number(!!b.warning) - Number(!!a.warning) ||
+  Number(b.diPO) - Number(a.diPO) ||
   // Belum pernah order dianggap paling lama.
   (b.hariSejak ?? Number.POSITIVE_INFINITY) - (a.hariSejak ?? Number.POSITIVE_INFINITY) ||
   Number(b.listed) - Number(a.listed) ||
@@ -84,9 +90,10 @@ export interface KonteksMSL {
 
 /**
  * SKU yang tampil di toko = listed ∪ pernah dibeli, hanya SKU aktif.
- * Urut: warning di atas (pin) → hari sejak order terlama → listed → nama.
+ * `keranjang` (kode_sku → qty): SKU dengan qty > 0 dianggap akan ditransaksikan → warning hilang.
+ * Urut: warning di atas (pin) → masuk PO → hari sejak order terlama → listed → nama.
  */
-export function daftarSkuMSL(ctx: KonteksMSL, kodeToko: string, D: ISODate): SkuMSL[] {
+export function daftarSkuMSL(ctx: KonteksMSL, kodeToko: string, D: ISODate, keranjang: Record<string, number> = {}): SkuMSL[] {
   const toko = normKode(kodeToko);
   const listed = ctx.mslIdx.get(toko) ?? new Set<string>();
   const last = lastOrderToko(ctx.trxIdx, toko, D);
@@ -97,28 +104,31 @@ export function daftarSkuMSL(ctx: KonteksMSL, kodeToko: string, D: ISODate): Sku
     const lo = last.get(p.kode_sku) ?? null;
     if (!isListed && !lo) continue;
     const hariSejak = lo ? diffDays(D, lo) : null;
-    out.push({ ...p, listed: isListed, lastOrder: lo, hariSejak, warning: nilaiWarning(isListed, hariSejak) });
+    const warningAwal = nilaiWarning(isListed, hariSejak);
+    const diPO = (keranjang[p.kode_sku] ?? 0) > 0;
+    out.push({ ...p, listed: isListed, lastOrder: lo, hariSejak, warningAwal, warning: diPO ? null : warningAwal, diPO });
   }
   return out.sort(bandingSku);
 }
 
-export interface RingkasDivisi {
-  divisi: string;
+export interface RingkasPrincipal {
+  principal: string;
   total: number;
   listed: number;
   warning: number;
 }
 
-export function ringkasDivisi(list: readonly SkuMSL[]): RingkasDivisi[] {
-  const m = new Map<string, RingkasDivisi>();
+/** Counter per principal (field `divisi` di Master Produk). */
+export function ringkasPrincipal(list: readonly SkuMSL[]): RingkasPrincipal[] {
+  const m = new Map<string, RingkasPrincipal>();
   for (const s of list) {
-    const r = m.get(s.divisi) ?? { divisi: s.divisi, total: 0, listed: 0, warning: 0 };
+    const r = m.get(s.divisi) ?? { principal: s.divisi, total: 0, listed: 0, warning: 0 };
     r.total++;
     if (s.listed) r.listed++;
     if (s.warning) r.warning++;
     m.set(s.divisi, r);
   }
-  return [...m.values()].sort((a, b) => b.warning - a.warning || a.divisi.localeCompare(b.divisi));
+  return [...m.values()].sort((a, b) => b.warning - a.warning || a.principal.localeCompare(b.principal));
 }
 
 export interface Compliance {
@@ -130,14 +140,16 @@ export interface Compliance {
   persen: number;
 }
 
-export function compliance(list: readonly SkuMSL[]): Compliance {
+/** `saat`: 'sesudah' (default) = memperhitungkan keranjang; 'sebelum' = kondisi sebelum PO. */
+export function compliance(list: readonly SkuMSL[], saat: 'sebelum' | 'sesudah' = 'sesudah'): Compliance {
   const listed = list.filter((s) => s.listed);
-  const warning = listed.filter((s) => s.warning).length;
+  const w = (s: SkuMSL) => (saat === 'sebelum' ? s.warningAwal : s.warning);
+  const warning = listed.filter(w).length;
   const aktif = listed.length - warning;
   return {
     listed: listed.length,
     warning,
-    belumPernah: listed.filter((s) => s.warning === 'BELUM_PERNAH').length,
+    belumPernah: listed.filter((s) => w(s) === 'BELUM_PERNAH').length,
     aktif,
     persen: listed.length ? Math.round((aktif / listed.length) * 100) : 100,
   };

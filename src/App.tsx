@@ -12,7 +12,7 @@ import { useData } from './state';
 import { Home } from './pages/Home';
 import { MslPage } from './pages/admin/MslPage';
 import { MtAktivitasPage, MtLayout, MtOrderPage, MtRutePage, MtTokoListPage } from './pages/mt/MtPages';
-import { MtDivisiPage, MtPOPage, MtTokoPage } from './pages/mt/MtStore';
+import { MtRedirect, MtTokoPage } from './pages/mt/MtStore';
 
 function Splash() {
   return (
@@ -47,8 +47,8 @@ export function App() {
           <SalesSessionProvider channel="MT" storageKey="svdi-v2-mt-session">
             <Routes>
               <Route path="toko/:kode" element={<MtTokoPage />} />
-              <Route path="toko/:kode/divisi/:divisi" element={<MtDivisiPage />} />
-              <Route path="toko/:kode/po" element={<MtPOPage />} />
+              <Route path="toko/:kode/divisi/:divisi" element={<MtRedirect step="msl" />} />
+              <Route path="toko/:kode/po" element={<MtRedirect step="summary" />} />
               <Route element={<MtLayout />}>
                 <Route index element={<MtRutePage />} />
                 <Route path="toko" element={<MtTokoListPage />} />

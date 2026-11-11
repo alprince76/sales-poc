@@ -6,7 +6,7 @@ import { formatRupiah } from '../lib/format';
 import type { StatusKunjungan, UrutanMode } from '../lib/types';
 import { cariKunjungan, isSelesai, progres } from '../lib/visit';
 import { useData } from '../state';
-import { DetailTokoView } from './DetailTokoView';
+import { BayarBadge, DetailTokoView } from './DetailTokoView';
 import { Badge, cn, EmptyState, ProgressBar, Segmented, StatusTokoBadge, SummaryCard } from './ui';
 
 export function useKunjungan(kodeSalesman: string, D: ISODate, urutan: UrutanMode = 'prioritas') {
@@ -16,6 +16,8 @@ export function useKunjungan(kodeSalesman: string, D: ISODate, urutan: UrutanMod
 
 function KartuToko({ b, kunjungan, onClick }: { b: BarisKunjungan; kunjungan?: StatusKunjungan; onClick: () => void }) {
   const selesai = isSelesai(kunjungan);
+  const { masterIdx } = useData();
+  const m = masterIdx.get(b.kode_toko);
   return (
     <li>
       <button
@@ -43,6 +45,7 @@ function KartuToko({ b, kunjungan, onClick }: { b: BarisKunjungan; kunjungan?: S
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <StatusTokoBadge status={b.status} label={b.statusLabel} />
+            <BayarBadge tipe={m?.tipe_bayar} top={m?.top_hari} />
             {selesai && <Badge tone="green">Selesai</Badge>}
           </div>
         </div>

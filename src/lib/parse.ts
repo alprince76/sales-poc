@@ -32,6 +32,8 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'limit_kredit', jenis: 'int', wajib: false },
       { nama: 'status_blokir', jenis: 'bool', wajib: false },
       { nama: 'channel', jenis: 'string', wajib: false },
+      { nama: 'tipe_bayar', jenis: 'string', wajib: false },
+      { nama: 'top_hari', jenis: 'int', wajib: false },
     ],
   },
   rovi: {
@@ -44,6 +46,7 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'tanggal_jatuh_tempo', jenis: 'date', wajib: true },
       { nama: 'nilai_faktur', jenis: 'int', wajib: true },
       { nama: 'sisa_tagihan', jenis: 'int', wajib: true },
+      { nama: 'divisi', jenis: 'string', wajib: false },
     ],
   },
   pjp: {
@@ -204,6 +207,12 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
     if ('kode_salesman' in obj) obj.kode_salesman = normKode(obj.kode_salesman as string);
     if ('kode_sku' in obj) obj.kode_sku = normKode(obj.kode_sku as string);
     if (tipe === 'master' && 'channel' in obj) obj.channel = String(obj.channel).trim().toUpperCase();
+    if (tipe === 'master' && 'tipe_bayar' in obj) {
+      const tb = String(obj.tipe_bayar).trim().toUpperCase();
+      if (tb !== 'TUNAI' && tb !== 'KREDIT') alasan.push(`tipe_bayar harus TUNAI/KREDIT ("${obj.tipe_bayar}")`);
+      else obj.tipe_bayar = tb;
+    }
+    if (tipe === 'rovi' && 'divisi' in obj) obj.divisi = String(obj.divisi).trim().toUpperCase();
     if (tipe === 'rules' && !alasan.length && (obj.moq as number) < 1) alasan.push('moq minimal 1');
     if (tipe === 'rules' && !alasan.length && obj.kelipatan !== undefined && (obj.kelipatan as number) < 1)
       alasan.push('kelipatan minimal 1');

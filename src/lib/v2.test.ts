@@ -169,8 +169,8 @@ describe('PO: histori & suggested order', () => {
 });
 
 describe('PO: limit kredit & blokir', () => {
-  it('toko diblokir tidak bisa PO', () => {
-    expect(cekKredit({ status_blokir: true, limit_kredit: 50_000_000 }, 0, 100)).toMatchObject({ boleh: false });
+  it('toko diblokir: PO tetap boleh, dengan peringatan (feedback v4)', () => {
+    expect(cekKredit({ status_blokir: true, limit_kredit: 50_000_000 }, 0, 100)).toMatchObject({ boleh: true, peringatan: expect.stringMatching(/berpotensi tidak release/) });
   });
   it('outstanding + total PO > limit → ditolak dengan sisa limit', () => {
     const r = cekKredit({ status_blokir: false, limit_kredit: 10_000_000 }, 9_000_000, 1_500_000);
@@ -193,7 +193,7 @@ describe('PO: limit kredit & blokir', () => {
 // ───────────────────────── Stok ─────────────────────────
 describe('Cek Stok', () => {
   it('daftar SKU = pernah dibeli (didahulukan) ∪ channel GT', () => {
-    const list = daftarSkuStok(produk, [{ kode_sku: 'DAN-007', totalQty: 1, jumlahOrder: 1, terakhir: D, perBulan: [] }]);
+    const list = daftarSkuStok(produk, [{ kode_sku: 'DAN-007', totalQty: 1, jumlahOrder: 1, terakhir: D, qtyTerakhir: 1, perBulan: [] }]);
     expect(list.map((x) => x.kode_sku)).toEqual(['DAN-007', 'KOE-001', 'YUP-001']);
     expect(list[0].pernahDibeli).toBe(true);
     expect(daftarSkuStok(produk, []).map((x) => x.kode_sku)).not.toContain('DAN-007'); // MT, tidak pernah dibeli

@@ -49,6 +49,8 @@ export interface HistoriSku {
   totalQty: number;
   jumlahOrder: number;
   terakhir: ISODate;
+  /** Qty pada order terakhir. */
+  qtyTerakhir: number;
   /** Qty per bulan, 6 bulan terakhir (index 0 = paling lama). */
   perBulan: number[];
 }
@@ -63,10 +65,13 @@ export function historiToko(histori: readonly HistoriSales[], kodeToko: string, 
     if (h.tanggal_po >= D || h.tanggal_po < mulai) continue;
     const sku = normKode(h.kode_sku);
     let s = map.get(sku);
-    if (!s) map.set(sku, (s = { kode_sku: sku, totalQty: 0, jumlahOrder: 0, terakhir: h.tanggal_po, perBulan: [0, 0, 0, 0, 0, 0] }));
+    if (!s) map.set(sku, (s = { kode_sku: sku, totalQty: 0, jumlahOrder: 0, terakhir: h.tanggal_po, qtyTerakhir: h.qty, perBulan: [0, 0, 0, 0, 0, 0] }));
     s.totalQty += h.qty;
     s.jumlahOrder++;
-    if (h.tanggal_po > s.terakhir) s.terakhir = h.tanggal_po;
+    if (h.tanggal_po > s.terakhir) {
+      s.terakhir = h.tanggal_po;
+      s.qtyTerakhir = h.qty;
+    } else if (h.tanggal_po === s.terakhir && s.jumlahOrder > 1) s.qtyTerakhir += h.qty;
     const idx = 5 - Math.min(5, Math.floor(diffDays(D, h.tanggal_po) / 30));
     s.perBulan[idx] += h.qty;
   }
@@ -115,19 +120,43 @@ export const totalItems = (items: readonly ItemPO[]) => items.reduce((s, i) => s
 export interface CekKredit {
   boleh: boolean;
   alasan: string | null;
-  /** null = tanpa limit. */
+  /** null = tanpa limit (TUNAI / MT / limit kosong). */
   sisaLimit: number | null;
+  /** Peringatan non-blocking, mis. toko diblokir → PO berpotensi tidak release. */
+  peringatan: string | null;
 }
 
-/** Toko diblokir → tidak boleh PO. Outstanding + total PO > limit → tidak boleh. */
-export function cekKredit(outlet: Pick<MasterToko, 'status_blokir' | 'limit_kredit'> | undefined, outstanding: number, totalPO: number): CekKredit {
-  if (outlet?.status_blokir) return { boleh: false, alasan: 'Toko diblokir. PO baru tidak dapat dibuat.', sisaLimit: null };
+export const PERINGATAN_BLOKIR = 'PO berpotensi tidak release. Selesaikan tagihan atau hubungi admin.';
+
+export interface OpsiKredit {
+  /** MT tidak memakai aturan limit kredit maupun blokir. */
+  channel?: 'GT' | 'MT';
+}
+
+/**
+ * GT KREDIT: outstanding + total PO > limit → tidak boleh.
+ * GT TUNAI / MT: tanpa limit. Toko diblokir (GT) → boleh submit + peringatan.
+ */
+export function cekKredit(
+  outlet: Pick<MasterToko, 'status_blokir' | 'limit_kredit' | 'tipe_bayar'> | undefined,
+  outstanding: number,
+  totalPO: number,
+  opsi: OpsiKredit = {},
+): CekKredit {
+  if (opsi.channel === 'MT') return { boleh: true, alasan: null, sisaLimit: null, peringatan: null };
+  const peringatan = outlet?.status_blokir ? PERINGATAN_BLOKIR : null;
   const limit = outlet?.limit_kredit;
-  if (limit === undefined || limit === null) return { boleh: true, alasan: null, sisaLimit: null };
+  if (outlet?.tipe_bayar === 'TUNAI' || limit === undefined || limit === null) return { boleh: true, alasan: null, sisaLimit: null, peringatan };
   const sisa = limit - outstanding;
   if (totalPO > sisa)
-    return { boleh: false, alasan: `Melebihi limit kredit. Sisa limit ${formatRupiah(Math.max(0, sisa))}.`, sisaLimit: sisa };
-  return { boleh: true, alasan: null, sisaLimit: sisa };
+    return { boleh: false, alasan: `Melebihi limit kredit. Sisa limit ${formatRupiah(Math.max(0, sisa))}.`, sisaLimit: sisa, peringatan };
+  return { boleh: true, alasan: null, sisaLimit: sisa, peringatan };
+}
+
+/** "Biasa order ±4 Pcs/bulan" (dibulatkan ke atas, tanpa desimal). */
+export function teksBiasaOrder(s: Pick<Saran, 'rataBulanan'>, satuan: string): string | null {
+  if (!s.rataBulanan) return null;
+  return `Biasa order ±${Math.max(1, Math.ceil(s.rataBulanan))} ${satuan}/bulan`;
 }
 
 export interface ValidasiPO {
@@ -141,8 +170,9 @@ export interface ValidasiPO {
 export function validasiPO(
   keranjang: Record<string, number>,
   produk: readonly ProdukLengkap[],
-  outlet: Pick<MasterToko, 'status_blokir' | 'limit_kredit'> | undefined,
+  outlet: Pick<MasterToko, 'status_blokir' | 'limit_kredit' | 'tipe_bayar'> | undefined,
   outstanding: number,
+  opsi: OpsiKredit = {},
 ): ValidasiPO {
   const byKode = new Map(produk.map((p) => [p.kode_sku, p]));
   const errorItem: Record<string, string> = {};
@@ -154,6 +184,6 @@ export function validasiPO(
   }
   const items = buatItems(keranjang, produk);
   const total = totalItems(items);
-  const kredit = cekKredit(outlet, outstanding, total);
+  const kredit = cekKredit(outlet, outstanding, total, opsi);
   return { items, total, errorItem, kredit, bolehSubmit: items.length > 0 && !Object.keys(errorItem).length && kredit.boleh };
 }

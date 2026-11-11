@@ -186,8 +186,10 @@ for (const sr of SR_MT) {
         kode_salesman: sr.kode, nama_salesman: sr.nama, salesman_bw: sr.bw, kode_toko: kode, nama_toko: nama, area,
         alamat: `Jl. ${pickMT(JALAN)} No. ${intMT(1, 180)}, ${area}`,
         tipe_outlet: nama.split(' ')[0] === 'SUPERMARKET' ? 'Supermarket' : 'Minimarket',
-        limit_kredit: intMT(10, 30) * 5_000_000,
+        ...(intMT(10, 30) && {}), // MT tidak memakai limit kredit
         status_blokir: 'TIDAK',
+        tipe_bayar: 'KREDIT',
+        top_hari: 30,
         channel: 'MT',
       });
       const tgl = isoAdd(D0, d);
@@ -230,6 +232,41 @@ masterV2.push(...masterMT);
 const pjpV2 = [...pjp, ...pjpMT];
 histori.sort((a, b) => a.kode_toko.localeCompare(b.kode_toko) || a.tanggal_po - b.tanggal_po);
 
+// ── v4: kode SAP, divisi faktur, TUNAI/KREDIT + TOP (RNG terpisah; data lain tidak bergeser) ──
+const randV4 = rng(20261112);
+const DIV_IDX = { Danone: 1, Yupi: 2, Huki: 3, 'Koepoe-Koepoe': 4 };
+const SAP = new Map();
+for (const p of produk) {
+  const i = Number(p.kode_sku.split('-')[1]);
+  SAP.set(p.kode_sku, String(10000000 + DIV_IDX[p.divisi] * 100000 + 2000 + i * 17));
+}
+const sap = (k) => SAP.get(k) ?? k;
+for (const p of produk) p.kode_sku = sap(p.kode_sku);
+for (const r of rules) r.kode_sku = sap(r.kode_sku);
+for (const h of histori) h.kode_sku = sap(h.kode_sku);
+for (const m of msl) m.kode_sku = sap(m.kode_sku);
+
+const TOP = [14, 21, 30, 30];
+for (const m of masterV2) {
+  if (m.channel !== 'GT') continue;
+  const tunai = randV4() < 0.25;
+  m.tipe_bayar = tunai ? 'TUNAI' : 'KREDIT';
+  m.top_hari = tunai ? 0 : TOP[Math.floor(randV4() * TOP.length)];
+}
+// Toko demo: TEH LENI & toko blokir/limit tipis = KREDIT; WARMEL contoh TUNAI tidak dipaksa.
+for (const m of masterV2)
+  if (['TK00236', 'TK00054', 'TK00200', 'TK00090', 'TK00143'].includes(m.kode_toko)) {
+    m.tipe_bayar = 'KREDIT';
+    m.top_hari = 30;
+  }
+// TUNAI: limit kredit tidak berlaku.
+for (const m of masterV2) if (m.tipe_bayar === 'TUNAI') delete m.limit_kredit;
+
+const roviV4 = rovi.map((f) => {
+  const x = randV4();
+  return { ...f, divisi: x < 0.45 ? 'DNE' : x < 0.85 ? 'CBN' : 'MRS' };
+});
+
 // ── Tulis ────────────────────────────────────────────────────────────
 const setSheet = (name, rows, dateCols = []) => {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -248,6 +285,7 @@ const setSheet = (name, rows, dateCols = []) => {
   else XLSX.utils.book_append_sheet(wb, ws, name);
 };
 setSheet('Master_Toko', masterV2);
+setSheet('ROVI', roviV4, ['tanggal_faktur', 'tanggal_jatuh_tempo']);
 setSheet('PJP', pjpV2, ['tanggal_kunjungan']);
 setSheet('MSL', msl);
 setSheet('Produk', produk);
@@ -256,6 +294,9 @@ setSheet('Histori_Sales', histori, ['tanggal_po']);
 
 // README sheet: tambahkan keterangan
 const readme = XLSX.utils.sheet_to_json(wb.Sheets.README, { header: 1 });
+if (!readme.some((r) => String(r[0] ?? '').startsWith('v4:'))) {
+  readme.push(['v4: kode_sku = kode SAP 8 digit; ROVI.divisi (DNE/CBN/MRS); Master_Toko.tipe_bayar (TUNAI/KREDIT) + top_hari = DUMMY.']);
+}
 if (!readme.some((r) => String(r[0] ?? '').startsWith('v3:'))) {
   readme.push(['v3: Modern Trade — SR SLSM01/SLSM02, outlet MT00001–MT00060 (channel=MT), PJP 9–14 Nov, sheet MSL (status_listed YES/NO), Produk.status_aktif = DUMMY.']);
 }

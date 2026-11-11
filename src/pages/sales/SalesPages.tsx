@@ -2,6 +2,7 @@ import { CalendarClock, CheckCircle2, ChevronRight, HandCoins, PackageCheck, Rec
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useKunjungan, KunjunganPanel } from '../../components/KunjunganPanel';
+import { BayarBadge } from '../../components/DetailTokoView';
 import { FakturCard, PenagihanSheet, usePenagihanTerakhir } from '../../components/Penagihan';
 import { Badge, Card, EmptyState, Input, SectionTitle, Select, StatusTokoBadge, SummaryCard, cn } from '../../components/ui';
 import { normKode, ringkasTagihan, type FakturDinilai } from '../../lib/billing';
@@ -173,6 +174,7 @@ export function TokoPage() {
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         <StatusTokoBadge status={r.status} label={r.statusLabel} />
                         {hariIni ? <Badge tone="brand">Jadwal hari ini</Badge> : berikut ? <Badge tone="gray" dot={false}>Jadwal {formatTanggal(berikut)}</Badge> : null}
+                        <BayarBadge tipe={m.tipe_bayar} top={m.top_hari} />
                         {m.status_blokir && <Badge tone="red">Diblokir</Badge>}
                       </div>
                     </div>

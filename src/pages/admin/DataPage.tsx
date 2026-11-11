@@ -10,10 +10,10 @@ import { formatTimestamp, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
 
 const JUDUL: Record<TipeData, { nama: string; desc: string }> = {
-  master: { nama: 'Master Outlet', desc: 'Toko, salesman, channel GT/MT, alamat, tipe, limit kredit, blokir' },
-  rovi: { nama: 'ROVI (AR)', desc: 'Faktur & sisa tagihan per toko' },
+  master: { nama: 'Master Outlet', desc: 'Toko, salesman, channel GT/MT, TUNAI/KREDIT, TOP, limit kredit, blokir' },
+  rovi: { nama: 'ROVI (AR)', desc: 'Faktur, divisi (DNE/CBN/MRS), sisa tagihan per toko' },
   pjp: { nama: 'PJP', desc: 'Jadwal kunjungan salesman per tanggal' },
-  produk: { nama: 'Master Produk', desc: 'SKU, divisi (principal), kategori, price list, status aktif' },
+  produk: { nama: 'Master Produk', desc: 'Kode SAP, nama SKU, principal, kategori, price list, status aktif' },
   rules: { nama: 'Order Rules', desc: 'Satuan, MOQ, kelipatan order per SKU' },
   histori: { nama: 'Historical Sales', desc: 'Pembelian toko per SKU (suggested order & last order date MSL)' },
   msl: { nama: 'MSL (Toko – SKU Listing)', desc: 'SKU yang wajib ada di toko MT (status_listed YES/NO)' },

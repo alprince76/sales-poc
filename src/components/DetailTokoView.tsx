@@ -57,14 +57,28 @@ export function KelompokFaktur({ d, onPilih }: { d: DetailToko; onPilih?: (f: Fa
   );
 }
 
-export function InfoOutlet({ kodeToko }: { kodeToko: string }) {
+/** "TUNAI" / "KREDIT · TOP 30 hari" */
+export function BayarBadge({ tipe, top }: { tipe?: string; top?: number }) {
+  if (!tipe) return null;
+  const tunai = tipe === 'TUNAI';
+  return (
+    <Badge tone={tunai ? 'green' : 'brand'} dot={false}>
+      <span className="font-bold">{tunai ? 'TUNAI' : 'KREDIT'}</span>
+      {!tunai && top ? ` · TOP ${top} hari` : ''}
+    </Badge>
+  );
+}
+
+export function InfoOutlet({ kodeToko, tanpaLimit }: { kodeToko: string; tanpaLimit?: boolean }) {
   const { masterIdx } = useData();
   const m = masterIdx.get(kodeToko);
   if (!m) return null;
   const items: ReactNode[] = [];
   if (m.tipe_outlet) items.push(<Badge key="t" tone="gray" dot={false}>{m.tipe_outlet}</Badge>);
-  if (m.status_blokir) items.push(<Badge key="b" tone="red">Diblokir</Badge>);
-  if (m.limit_kredit !== undefined) items.push(<Badge key="l" tone="gray" dot={false}>Limit {formatRupiah(m.limit_kredit)}</Badge>);
+  if (!tanpaLimit && m.tipe_bayar) items.push(<BayarBadge key="tb" tipe={m.tipe_bayar} top={m.top_hari} />);
+  if (!tanpaLimit && m.status_blokir) items.push(<Badge key="b" tone="red">Diblokir</Badge>);
+  if (!tanpaLimit && m.tipe_bayar !== 'TUNAI' && m.limit_kredit !== undefined)
+    items.push(<Badge key="l" tone="gray" dot={false}>Limit {formatRupiah(m.limit_kredit)}</Badge>);
   return (
     <div className="space-y-1.5">
       {m.alamat && <p className="text-sm text-slate-600">{m.alamat}</p>}
