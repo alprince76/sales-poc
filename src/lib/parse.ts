@@ -1,14 +1,14 @@
 /**
- * Parsing + validasi baris Excel/CSV untuk Master, ROVI, PJP, Produk, Order Rules, Histori Sales.
+ * Parsing + validasi baris Excel/CSV untuk Master, ROVI, PJP, Produk, Order Rules, Histori Sales, MSL.
  * Header case-insensitive (spasi → underscore). Nomor baris = nomor baris Excel (header = baris 1).
  */
 import * as XLSX from 'xlsx';
 import { normalizeDate } from './dates';
 import { normKode } from './billing';
-import type { DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, OrderRule, Produk } from './types';
+import type { DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, MslListing, OrderRule, Produk } from './types';
 
 export type TipeData = keyof DataSet;
-export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori'];
+export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl'];
 
 type JenisKolom = 'string' | 'date' | 'int' | 'bool';
 interface Kolom {
@@ -31,6 +31,7 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'tipe_outlet', jenis: 'string', wajib: false },
       { nama: 'limit_kredit', jenis: 'int', wajib: false },
       { nama: 'status_blokir', jenis: 'bool', wajib: false },
+      { nama: 'channel', jenis: 'string', wajib: false },
     ],
   },
   rovi: {
@@ -66,6 +67,7 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'kategori', jenis: 'string', wajib: false },
       { nama: 'harga', jenis: 'int', wajib: true },
       { nama: 'channel', jenis: 'string', wajib: false },
+      { nama: 'status_aktif', jenis: 'bool', wajib: false },
     ],
   },
   rules: {
@@ -84,6 +86,14 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'kode_sku', jenis: 'string', wajib: true },
       { nama: 'tanggal_po', jenis: 'date', wajib: true },
       { nama: 'qty', jenis: 'int', wajib: true },
+    ],
+  },
+  msl: {
+    sheet: 'MSL',
+    kolom: [
+      { nama: 'kode_toko', jenis: 'string', wajib: true },
+      { nama: 'kode_sku', jenis: 'string', wajib: true },
+      { nama: 'status_listed', jenis: 'bool', wajib: true },
     ],
   },
 };
@@ -193,6 +203,7 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
     if ('kode_toko' in obj) obj.kode_toko = normKode(obj.kode_toko as string);
     if ('kode_salesman' in obj) obj.kode_salesman = normKode(obj.kode_salesman as string);
     if ('kode_sku' in obj) obj.kode_sku = normKode(obj.kode_sku as string);
+    if (tipe === 'master' && 'channel' in obj) obj.channel = String(obj.channel).trim().toUpperCase();
     if (tipe === 'rules' && !alasan.length && (obj.moq as number) < 1) alasan.push('moq minimal 1');
     if (tipe === 'rules' && !alasan.length && obj.kelipatan !== undefined && (obj.kelipatan as number) < 1)
       alasan.push('kelipatan minimal 1');
@@ -220,6 +231,7 @@ export function parseSheet(tipe: 'pjp', ws: XLSX.WorkSheet): HasilParse<Kunjunga
 export function parseSheet(tipe: 'produk', ws: XLSX.WorkSheet): HasilParse<Produk>;
 export function parseSheet(tipe: 'rules', ws: XLSX.WorkSheet): HasilParse<OrderRule>;
 export function parseSheet(tipe: 'histori', ws: XLSX.WorkSheet): HasilParse<HistoriSales>;
+export function parseSheet(tipe: 'msl', ws: XLSX.WorkSheet): HasilParse<MslListing>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unknown>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unknown> {
   const { header, rows } = sheetToRows(ws);
@@ -268,5 +280,6 @@ export function bacaDataSet(wb: XLSX.WorkBook) {
     produk: opt('produk', (ws) => parseSheet('produk', ws)),
     rules: opt('rules', (ws) => parseSheet('rules', ws)),
     histori: opt('histori', (ws) => parseSheet('histori', ws)),
+    msl: opt('msl', (ws) => parseSheet('msl', ws)),
   };
 }

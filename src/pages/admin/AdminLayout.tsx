@@ -1,4 +1,4 @@
-import { Boxes, ClipboardList, Database, HandCoins, LayoutDashboard, Menu, Route as RouteIcon, ShoppingCart, Smartphone, Store, X } from 'lucide-react';
+import { Boxes, ClipboardList, Database, HandCoins, LayoutDashboard, ListChecks, Menu, Route as RouteIcon, ShoppingCart, Smartphone, Store, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { cn } from '../../components/ui';
@@ -11,6 +11,7 @@ const NAV = [
   { to: '/admin/penagihan', label: 'Penagihan', icon: HandCoins },
   { to: '/admin/po', label: 'Purchase Order', icon: ShoppingCart },
   { to: '/admin/stok', label: 'Cek Stok', icon: Boxes },
+  { to: '/admin/msl', label: 'MSL Compliance (MT)', icon: ListChecks },
   { to: '/admin/data', label: 'Data & Upload', icon: Database },
 ];
 
@@ -45,9 +46,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         ))}
       </nav>
       <div className="space-y-3 border-t border-white/10 p-4">
-        <Link to="/sales" className="flex items-center gap-2 rounded-xl bg-white/5 px-3 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/10">
-          <Smartphone size={16} /> Buka Sales App
-        </Link>
+        <div className="grid grid-cols-2 gap-2">
+          <Link to="/sales" className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 px-2 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/10">
+            <Smartphone size={15} /> Sales GT
+          </Link>
+          <Link to="/mt" className="flex items-center justify-center gap-1.5 rounded-xl bg-white/5 px-2 py-2.5 text-sm font-medium text-slate-200 hover:bg-white/10">
+            <Smartphone size={15} /> Sales MT
+          </Link>
+        </div>
         <p className="text-xs leading-relaxed text-slate-400">
           Data diperbarui {formatTimestamp(latestUpdate(updatedAt))}
           {pakaiDummy && <span className="block text-slate-500">Sebagian memakai data dummy</span>}

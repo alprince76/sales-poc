@@ -1,5 +1,5 @@
 import { Check, Download, Minus, Search } from 'lucide-react';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { DetailTokoView } from '../../components/DetailTokoView';
 import { useKunjungan } from '../../components/KunjunganPanel';
 import { usePenagihanTerakhir } from '../../components/Penagihan';
@@ -13,16 +13,24 @@ import type { StatusBayar, StatusFaktur } from '../../lib/types';
 import { cariKunjungan, isSelesai, progres } from '../../lib/visit';
 import { DEFAULT_DATE, formatTimestamp, useData } from '../../state';
 import { AdminPage, Table } from './AdminLayout';
+import { teksTerakhirOrder } from '../../lib/msl';
+import { useMslToko, useRuteMT, WarningBadge } from '../mt/shared';
 
 function SalesSelect({ value, onChange, semua = true }: { value: string; onChange: (v: string) => void; semua?: boolean }) {
   const { salesmen } = useData();
   return (
     <Select label="Salesman" value={value} onChange={onChange}>
       {semua && <option value="">Semua salesman</option>}
-      {salesmen.map((s) => (
-        <option key={s.kode} value={s.kode}>
-          {s.nama} ({s.kode})
-        </option>
+      {(['GT', 'MT'] as const).map((ch) => (
+        <optgroup key={ch} label={ch === 'GT' ? 'General Trade' : 'Modern Trade'}>
+          {salesmen
+            .filter((s) => s.channel === ch)
+            .map((s) => (
+              <option key={s.kode} value={s.kode}>
+                {s.nama} ({s.kode})
+              </option>
+            ))}
+        </optgroup>
       ))}
     </Select>
   );
@@ -165,9 +173,112 @@ export function TokoFakturPage() {
 // ───────────────────────── Rute Salesman ─────────────────────────
 
 export function RuteAdminPage() {
-  const { salesmen, aktivitas, masterIdx } = useData();
+  const { salesmen } = useData();
   const [sales, setSales] = useState(salesmen[0]?.kode ?? '');
   const [D, setD] = useState(DEFAULT_DATE);
+  const isMT = salesmen.find((s) => s.kode === sales)?.channel === 'MT';
+  const actions = (
+    <>
+      <SalesSelect value={sales} onChange={setSales} semua={false} />
+      <div className="w-64">
+        <DateNav value={D} onChange={setD} />
+      </div>
+    </>
+  );
+  return isMT ? <RuteMT sales={sales} D={D} actions={actions} /> : <RuteGT sales={sales} D={D} actions={actions} />;
+}
+
+function RuteMT({ sales, D, actions }: { sales: string; D: string; actions: ReactNode }) {
+  const { aktivitas } = useData();
+  const rows = useRuteMT(sales, D, 'rute');
+  const [dipilih, setDipilih] = useState<string | null>(null);
+  const po = aktivitas.po.filter((p) => p.kode_salesman === sales && p.tanggal === D);
+  const listed = rows.reduce((s, r) => s + r.listed, 0);
+  const warning = rows.reduce((s, r) => s + r.warning, 0);
+  const tokoPO = new Set(po.map((p) => p.kode_toko));
+  return (
+    <AdminPage title="Rute Salesman" description="Modern Trade: kunjungan & status MSL per toko." actions={actions}>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <SummaryCard label="Kunjungan" value={rows.length} hint={`${rows.filter((r) => tokoPO.has(r.kode_toko)).length} toko sudah order`} />
+        <SummaryCard label="MSL aktif" value={`${listed ? Math.round(((listed - warning) / listed) * 100) : 100}%`} accent="green" hint={`${listed - warning}/${listed} SKU`} />
+        <SummaryCard label="SKU untransacted" value={warning} accent={warning ? 'red' : undefined} />
+        <SummaryCard label="PO" value={formatRupiah(po.reduce((s, p) => s + p.total, 0))} accent="brand" hint={`${po.length} PO`} />
+      </div>
+      <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_360px]">
+        <Card className="min-w-0 overflow-hidden">
+          {rows.length === 0 ? (
+            <div className="p-4">
+              <EmptyState title="Tidak ada jadwal kunjungan">Pilih tanggal lain.</EmptyState>
+            </div>
+          ) : (
+            <Table
+              head={
+                <tr>
+                  <th className="w-10">#</th>
+                  <th>Toko</th>
+                  <th className="text-right">Listed</th>
+                  <th className="text-right">Untransacted</th>
+                  <th className="min-w-[140px]">MSL aktif</th>
+                  <th>PO hari ini</th>
+                </tr>
+              }
+            >
+              {rows.map((r) => (
+                <tr key={r.kode_toko} onClick={() => setDipilih(r.kode_toko)} className={cn('cursor-pointer hover:bg-slate-50', dipilih === r.kode_toko && 'bg-brand-50/60')}>
+                  <td className="tabular text-slate-500">{r.urutan ?? '–'}</td>
+                  <td>
+                    <div className="font-medium text-slate-900">{r.nama_toko}</div>
+                    <div className="font-mono text-xs text-slate-500">{r.kode_toko}</div>
+                  </td>
+                  <td className="text-right tabular">{r.listed}</td>
+                  <td className={cn('text-right tabular', r.warning > 0 && 'font-semibold text-red-600')}>{r.warning}</td>
+                  <td>
+                    <div className="mb-1 text-xs tabular text-slate-600">{r.persen}%</div>
+                    <ProgressBar value={r.listed - r.warning} max={r.listed} tone="green" />
+                  </td>
+                  <td className="whitespace-nowrap text-xs">
+                    {tokoPO.has(r.kode_toko) ? formatRupiah(po.filter((p) => p.kode_toko === r.kode_toko).reduce((s, p) => s + p.total, 0)) : <span className="text-slate-400">–</span>}
+                  </td>
+                </tr>
+              ))}
+            </Table>
+          )}
+        </Card>
+        <Card className="p-4 xl:sticky xl:top-6 xl:self-start">
+          {dipilih ? <MslTokoDetail kodeToko={dipilih} D={D} /> : <p className="py-10 text-center text-sm text-slate-500">Klik toko untuk melihat SKU listed & warning.</p>}
+        </Card>
+      </div>
+    </AdminPage>
+  );
+}
+
+function MslTokoDetail({ kodeToko, D }: { kodeToko: string; D: string }) {
+  const { masterIdx } = useData();
+  const list = useMslToko(kodeToko, D);
+  return (
+    <>
+      <h2 className="font-semibold text-slate-900">{masterIdx.get(kodeToko)?.nama_toko ?? kodeToko}</h2>
+      <p className="text-sm text-slate-500">{kodeToko}</p>
+      <ul className="mt-3 divide-y divide-slate-100">
+        {list.map((s) => (
+          <li key={s.kode_sku} className="py-2">
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-sm text-slate-900">{s.nama_sku}</span>
+              <WarningBadge s={s} />
+            </div>
+            <div className={cn('text-xs', s.warning ? 'text-red-600' : 'text-slate-500')}>
+              {s.divisi}
+              {s.warning !== 'BELUM_PERNAH' && ` · ${teksTerakhirOrder(s)}`}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function RuteGT({ sales, D, actions }: { sales: string; D: string; actions: ReactNode }) {
+  const { aktivitas, masterIdx } = useData();
   const [dipilih, setDipilih] = useState<string | null>(null);
   const hasil = useKunjungan(sales, D, 'rute');
   const prog = progres(aktivitas.kunjungan, sales, D, hasil.baris.map((b) => b.kode_toko));
@@ -189,18 +300,7 @@ export function RuteAdminPage() {
     );
 
   return (
-    <AdminPage
-      title="Rute Salesman"
-      description="Monitoring rute, penagihan, dan hasil kunjungan per salesman."
-      actions={
-        <>
-          <SalesSelect value={sales} onChange={setSales} semua={false} />
-          <div className="w-64">
-            <DateNav value={D} onChange={setD} />
-          </div>
-        </>
-      }
-    >
+    <AdminPage title="Rute Salesman" description="General Trade: rute, penagihan, dan hasil kunjungan." actions={actions}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <SummaryCard label="Kunjungan" value={hasil.jumlahKunjungan} hint={`${hasil.jumlahPerluDitagih} perlu ditagih`} />
         <div className="col-span-1 rounded-2xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-card">
@@ -409,13 +509,17 @@ export function PenagihanPage() {
 // ───────────────────────── Purchase Order ─────────────────────────
 
 export function POPage() {
-  const { aktivitas, masterIdx, salesmen } = useData();
+  const { aktivitas, masterIdx, salesmen, channelToko } = useData();
   const [sales, setSales] = useState('');
+  const [channel, setChannel] = useState('');
   const [divisi, setDivisi] = useState('');
   const [buka, setBuka] = useState<string | null>(null);
   const nama = namaTokoFn(masterIdx);
   const namaSR = (k: string) => salesmen.find((s) => s.kode === k)?.nama ?? k;
-  const rows = aktivitas.po.filter((p) => (!sales || p.kode_salesman === sales) && (!divisi || p.items.some((i) => i.divisi === divisi))).slice().reverse();
+  const rows = aktivitas.po
+    .filter((p) => (!sales || p.kode_salesman === sales) && (!channel || channelToko(p.kode_toko) === channel) && (!divisi || p.items.some((i) => i.divisi === divisi)))
+    .slice()
+    .reverse();
   const semuaDivisi = Array.from(new Set(aktivitas.po.flatMap((p) => p.items.map((i) => i.divisi)))).sort();
   const perDivisi = semuaDivisi.map((d) => ({ d, nilai: rows.flatMap((p) => p.items).filter((i) => i.divisi === d).reduce((s, i) => s + i.subtotal, 0) }));
   const total = rows.reduce((s, p) => s + p.total, 0);
@@ -463,6 +567,11 @@ export function POPage() {
       </div>
       <Card className="mt-5 overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3">
+          <Select label="Channel" value={channel} onChange={setChannel}>
+            <option value="">Semua channel</option>
+            <option value="GT">General Trade</option>
+            <option value="MT">Modern Trade</option>
+          </Select>
           <SalesSelect value={sales} onChange={setSales} />
           <Select label="Divisi" value={divisi} onChange={setDivisi}>
             <option value="">Semua divisi</option>
@@ -478,6 +587,7 @@ export function POPage() {
           head={
             <tr>
               <th>No PO</th>
+              <th>Ch</th>
               <th>Tanggal</th>
               <th>Salesman</th>
               <th>Toko</th>
@@ -491,6 +601,11 @@ export function POPage() {
             <Fragment key={p.id}>
               <tr onClick={() => setBuka(buka === p.id ? null : p.id)} className="cursor-pointer hover:bg-slate-50">
                 <td className="font-mono text-xs font-medium text-slate-900">{p.no_po}</td>
+                <td>
+                  <Badge tone={channelToko(p.kode_toko) === 'MT' ? 'violet' : 'gray'} dot={false}>
+                    {channelToko(p.kode_toko)}
+                  </Badge>
+                </td>
                 <td className="whitespace-nowrap">{formatTanggal(p.tanggal)}</td>
                 <td className="whitespace-nowrap">{namaSR(p.kode_salesman)}</td>
                 <td>{nama(p.kode_toko)}</td>
@@ -502,7 +617,7 @@ export function POPage() {
               </tr>
               {buka === p.id && (
                 <tr className="bg-slate-50/70">
-                  <td colSpan={7}>
+                  <td colSpan={8}>
                     <ul className="divide-y divide-slate-200/70">
                       {p.items.map((i) => (
                         <li key={i.kode_sku} className="flex justify-between gap-3 py-1.5 text-xs">

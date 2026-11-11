@@ -195,8 +195,8 @@ export function TokoPage() {
 // ───────────────────────── Aktivitas ─────────────────────────
 
 export function AktivitasPage() {
-  const { kode, setKode, D } = useSalesSession();
-  const { aktivitas, salesmen, updatedAt, masterIdx } = useData();
+  const { kode, setKode, D, salesmen } = useSalesSession();
+  const { aktivitas, updatedAt, masterIdx } = useData();
   const hasil = useKunjungan(kode, D);
   const prog = progres(aktivitas.kunjungan, kode, D, hasil.baris.map((b) => b.kode_toko));
   const pen = aktivitas.penagihan.filter((p) => p.kode_salesman === kode && p.tanggal === D);

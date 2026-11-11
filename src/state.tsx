@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { indexFaktur, indexMaster, normKode, type FakturIndex } from './lib/billing';
 import { applyPenagihan } from './lib/collection';
+import { indexMsl, indexTransaksi, type IndexTransaksi } from './lib/msl';
 import { gabungProduk, type ProdukLengkap } from './lib/order';
 import { bacaDataSet, bacaWorkbook, SEMUA_TIPE, type TipeData } from './lib/parse';
 import type {
@@ -21,6 +22,11 @@ const DUMMY_URL = `${import.meta.env.BASE_URL}Dummy_ROVI_PJP.xlsx`;
 const KEY_META = 'svdi-v2-meta';
 const KEY_DATA = (t: TipeData) => `svdi-v2-data-${t}`;
 const KEY_AKT = 'svdi-v2-aktivitas';
+const KEY_KERANJANG = 'svdi-v2-keranjang-mt';
+
+export type Channel = 'GT' | 'MT';
+/** kode_toko → (kode_sku → qty). */
+export type KeranjangMT = Record<string, Record<string, number>>;
 
 type Sumber = 'dummy' | 'upload';
 interface Meta {
@@ -29,7 +35,7 @@ interface Meta {
 }
 
 const semua = <V,>(v: V) => Object.fromEntries(SEMUA_TIPE.map((t) => [t, v])) as Record<TipeData, V>;
-const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [] };
+const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [] };
 const EMPTY_AKT: Aktivitas = { penagihan: [], stok: [], po: [], kunjungan: [] };
 
 function lsGet<T>(key: string): T | null {
@@ -60,7 +66,7 @@ async function fetchDummy(): Promise<DataSet> {
   const res = await fetch(DUMMY_URL);
   if (!res.ok) throw new Error(`Gagal memuat data dummy (${res.status})`);
   const p = bacaDataSet(bacaWorkbook(new Uint8Array(await res.arrayBuffer())));
-  return { master: p.master.valid, rovi: p.rovi.valid, pjp: p.pjp.valid, produk: p.produk.valid, rules: p.rules.valid, histori: p.histori.valid };
+  return { master: p.master.valid, rovi: p.rovi.valid, pjp: p.pjp.valid, produk: p.produk.valid, rules: p.rules.valid, histori: p.histori.valid, msl: p.msl.valid };
 }
 
 export function newId(): string {
@@ -85,8 +91,16 @@ interface Ctx {
   fakturIdx: FakturIndex;
   masterIdx: Map<string, MasterToko>;
   produk: ProdukLengkap[];
-  salesmen: { kode: string; nama: string }[];
+  salesmen: { kode: string; nama: string; channel: Channel }[];
+  /** Channel per kode toko (default GT). */
+  channelToko: (kodeToko: string) => Channel;
+  mslIdx: Map<string, Set<string>>;
+  /** Histori + PO aplikasi → dasar warning MSL yang dinamis. */
+  trxIdx: IndexTransaksi;
   aktivitas: Aktivitas;
+  keranjang: KeranjangMT;
+  setQtyKeranjang: (toko: string, sku: string, qty: number) => void;
+  kosongkanKeranjang: (toko: string) => void;
 
   replace: <K extends TipeData>(tipe: K, rows: DataSet[K]) => void;
   resetDummy: () => Promise<void>;
@@ -104,6 +118,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [raw, setRaw] = useState<DataSet>(EMPTY_DATA);
   const [meta, setMeta] = useState<Meta>(() => lsGet<Meta>(KEY_META) ?? { sumber: semua<Sumber>('dummy'), updatedAt: semua<string | null>(null) });
   const [aktivitas, setAktivitas] = useState<Aktivitas>(() => ({ ...EMPTY_AKT, ...(lsGet<Aktivitas>(KEY_AKT) ?? {}) }));
+  const [keranjang, setKeranjang] = useState<KeranjangMT>(() => lsGet<KeranjangMT>(KEY_KERANJANG) ?? {});
   const [status, setStatus] = useState<Ctx['status']>('loading');
   const [error, setError] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState(false);
@@ -171,7 +186,37 @@ export function DataProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const resetAktivitas = useCallback(() => updateAkt(() => EMPTY_AKT), [updateAkt]);
+  const updateKeranjang = useCallback((f: (k: KeranjangMT) => KeranjangMT) => {
+    setKeranjang((prev) => {
+      const next = f(prev);
+      lsSet(KEY_KERANJANG, next);
+      return next;
+    });
+  }, []);
+  const setQtyKeranjang = useCallback<Ctx['setQtyKeranjang']>(
+    (toko, sku, qty) =>
+      updateKeranjang((k) => {
+        const t = { ...(k[toko] ?? {}) };
+        if (qty > 0) t[sku] = qty;
+        else delete t[sku];
+        return { ...k, [toko]: t };
+      }),
+    [updateKeranjang],
+  );
+  const kosongkanKeranjang = useCallback<Ctx['kosongkanKeranjang']>(
+    (toko) =>
+      updateKeranjang((k) => {
+        const { [toko]: _, ...rest } = k;
+        void _;
+        return rest;
+      }),
+    [updateKeranjang],
+  );
+
+  const resetAktivitas = useCallback(() => {
+    updateAkt(() => EMPTY_AKT);
+    updateKeranjang(() => ({}));
+  }, [updateAkt, updateKeranjang]);
   const tambahPenagihan = useCallback((p: Penagihan) => updateAkt((a) => ({ ...a, penagihan: [...a.penagihan, p] })), [updateAkt]);
   const simpanStok = useCallback(
     (s: CekStok) =>
@@ -206,25 +251,36 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const derived = useMemo(() => {
     const data: DataSet = { ...raw, rovi: applyPenagihan(raw.rovi, aktivitas.penagihan) };
-    const seen = new Map<string, string>();
+    const chToko = new Map<string, Channel>();
+    for (const m of data.master) chToko.set(normKode(m.kode_toko), m.channel === 'MT' ? 'MT' : 'GT');
+    const channelToko = (k: string): Channel => chToko.get(normKode(k)) ?? 'GT';
+    const seen = new Map<string, { nama: string; channel: Channel }>();
     for (const r of [...data.master, ...data.pjp]) {
       const k = normKode(r.kode_salesman);
-      if (!seen.has(k)) seen.set(k, r.nama_salesman);
+      if (!seen.has(k)) seen.set(k, { nama: r.nama_salesman, channel: channelToko(r.kode_toko) });
     }
     return {
       data,
       fakturIdx: indexFaktur(data.rovi),
       masterIdx: indexMaster(data.master),
       produk: gabungProduk(data.produk, data.rules),
-      salesmen: [...seen].map(([kode, nama]) => ({ kode, nama })).sort((a, b) => a.kode.localeCompare(b.kode)),
+      salesmen: [...seen].map(([kode, v]) => ({ kode, ...v })).sort((a, b) => a.kode.localeCompare(b.kode)),
+      channelToko,
+      mslIdx: indexMsl(data.msl),
     };
   }, [raw, aktivitas.penagihan]);
+
+  const trxIdx = useMemo(() => indexTransaksi(raw.histori, aktivitas.po), [raw.histori, aktivitas.po]);
 
   const value: Ctx = {
     status,
     error,
     raw,
     ...derived,
+    trxIdx,
+    keranjang,
+    setQtyKeranjang,
+    kosongkanKeranjang,
     updatedAt: meta.updatedAt,
     sumber: meta.sumber,
     storageWarning,

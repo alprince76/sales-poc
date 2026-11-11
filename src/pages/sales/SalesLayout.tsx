@@ -5,14 +5,16 @@ import { cn, DateNav } from '../../components/ui';
 import { todayJakarta } from '../../lib/dates';
 import { useSalesSession } from './session';
 
-const NAV = [
+export type NavItem = { to: string; label: string; icon: typeof RouteIcon; end?: boolean };
+
+const NAV: NavItem[] = [
   { to: '/sales', label: 'Rute', icon: RouteIcon, end: true },
   { to: '/sales/tagihan', label: 'Tagihan', icon: ReceiptText },
   { to: '/sales/toko', label: 'Toko', icon: Store },
   { to: '/sales/aktivitas', label: 'Aktivitas', icon: Activity },
 ];
 
-export function SalesHeader({ title, right }: { title: string; right?: ReactNode }) {
+export function SalesHeader({ title, right, badge }: { title: string; right?: ReactNode; badge?: ReactNode }) {
   const { nama, kode, D, setD } = useSalesSession();
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/90 backdrop-blur">
@@ -24,7 +26,8 @@ export function SalesHeader({ title, right }: { title: string; right?: ReactNode
             </div>
             <div className="min-w-0">
               <h1 className="truncate text-base font-bold leading-tight text-slate-900">{title}</h1>
-              <p className="truncate text-xs text-slate-500">
+              <p className="flex items-center gap-1.5 truncate text-xs text-slate-500">
+                {badge}
                 {nama} · {kode}
               </p>
             </div>
@@ -41,13 +44,13 @@ export function SalesHeader({ title, right }: { title: string; right?: ReactNode
   );
 }
 
-export function SalesLayout() {
+export function SalesLayout({ nav = NAV }: { nav?: NavItem[] }) {
   return (
     <div className="min-h-dvh bg-slate-50 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
       <Outlet />
       <nav aria-label="Menu utama" className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-safe">
-        <ul className="mx-auto grid max-w-md grid-cols-4">
-          {NAV.map(({ to, label, icon: Icon, end }) => (
+        <ul className="mx-auto grid max-w-md" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
+          {nav.map(({ to, label, icon: Icon, end }) => (
             <li key={to}>
               <NavLink
                 to={to}

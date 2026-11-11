@@ -13,6 +13,8 @@ export interface MasterToko {
   /** Rupiah; kosong = tanpa limit. */
   limit_kredit?: number;
   status_blokir?: boolean;
+  /** "GT" (General Trade) / "MT" (Modern Trade). Kosong = GT. */
+  channel?: string;
 }
 
 /** Satu baris ROVI = satu faktur. Uang = integer rupiah. */
@@ -47,6 +49,15 @@ export interface Produk {
   harga: number;
   /** "GT" = terdaftar di channel General Trade. */
   channel?: string;
+  /** Kosong = aktif. */
+  status_aktif?: boolean;
+}
+
+/** Mapping Toko – SKU Listing (Must Stock List). */
+export interface MslListing {
+  kode_toko: string;
+  kode_sku: string;
+  status_listed: boolean;
 }
 
 /** Master Order Rules. */
@@ -72,6 +83,7 @@ export interface DataSet {
   produk: Produk[];
   rules: OrderRule[];
   histori: HistoriSales[];
+  msl: MslListing[];
 }
 
 export type StatusFaktur = 'OVERDUE' | 'JATUH_TEMPO_HARI_INI' | 'BELUM_JATUH_TEMPO';

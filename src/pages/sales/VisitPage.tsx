@@ -19,7 +19,7 @@ type Step = LangkahKunjungan | 'selesai';
 const STEPS: Step[] = [...LANGKAH, 'selesai'];
 
 /** Bar aksi menempel di bawah layar. */
-function ActionBar({ children }: { children: ReactNode }) {
+export function ActionBar({ children }: { children: ReactNode }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-safe">
       <div className="mx-auto flex max-w-md items-center gap-2 px-4 py-3">{children}</div>
@@ -543,7 +543,7 @@ function MiniBars({ values }: { values: number[] }) {
   );
 }
 
-function KreditCard({ blokir, limit, outstanding, totalPO }: { blokir: boolean; limit?: number; outstanding: number; totalPO: number }) {
+export function KreditCard({ blokir, limit, outstanding, totalPO }: { blokir: boolean; limit?: number; outstanding: number; totalPO: number }) {
   if (blokir)
     return (
       <div className="flex items-start gap-3 rounded-2xl bg-red-600 p-4 text-white">

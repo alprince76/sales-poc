@@ -1,12 +1,13 @@
 import { AlertOctagon, CalendarClock, CheckCircle2, HandCoins, ShoppingCart, Target } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, DateNav, ProgressBar, SummaryCard } from '../../components/ui';
+import { Badge, Card, DateNav, ProgressBar, Segmented, SummaryCard } from '../../components/ui';
 import { hitungKunjungan, indexFaktur, nilaiFaktur, type FakturDinilai } from '../../lib/billing';
 import { penagihanTerakhir, ringkasPenagihan } from '../../lib/collection';
 import type { ISODate } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { progres } from '../../lib/visit';
+import { compliance, daftarSkuMSL } from '../../lib/msl';
 import { DEFAULT_DATE, useData } from '../../state';
 import { AdminPage, Table } from './AdminLayout';
 
@@ -19,7 +20,7 @@ const BUCKET = [
 ];
 
 export function useRingkasanSR(D: ISODate) {
-  const { raw, data, fakturIdx, masterIdx, salesmen, aktivitas } = useData();
+  const { raw, data, fakturIdx, masterIdx, salesmen, aktivitas, produk, mslIdx, trxIdx } = useData();
   return useMemo(() => {
     const rawIdx = indexFaktur(raw.rovi);
     return salesmen.map((s) => {
@@ -28,10 +29,15 @@ export function useRingkasanSR(D: ISODate) {
       const pen = ringkasPenagihan(aktivitas.penagihan.filter((p) => p.kode_salesman === s.kode && p.tanggal === D));
       const po = aktivitas.po.filter((p) => p.kode_salesman === s.kode && p.tanggal === D);
       const prog = progres(aktivitas.kunjungan, s.kode, D, target.baris.map((b) => b.kode_toko));
+      const mslWarning =
+        s.channel === 'MT' ? target.baris.reduce((a, b) => a + compliance(daftarSkuMSL({ produk, mslIdx, trxIdx }, b.kode_toko, D)).warning, 0) : 0;
+      const tokoPO = new Set(po.map((p) => p.kode_toko));
       return {
         ...s,
+        mslWarning,
+        // MT tidak memakai stepper kunjungan: toko dianggap terkunjungi bila ada PO.
+        selesai: s.channel === 'MT' ? target.baris.filter((b) => tokoPO.has(b.kode_toko)).length : prog.selesai,
         kunjungan: target.jumlahKunjungan,
-        selesai: prog.selesai,
         perluDitagih: target.jumlahPerluDitagih,
         target: target.totalTagihan,
         sisa: sisa.totalTagihan,
@@ -42,13 +48,14 @@ export function useRingkasanSR(D: ISODate) {
         poNilai: po.reduce((a, p) => a + p.total, 0),
       };
     });
-  }, [raw, data, fakturIdx, masterIdx, salesmen, aktivitas, D]);
+  }, [raw, data, fakturIdx, masterIdx, salesmen, aktivitas, D, produk, mslIdx, trxIdx]);
 }
 
 export function DashboardPage() {
   const [D, setD] = useState(DEFAULT_DATE);
-  const { data, aktivitas } = useData();
-  const rows = useRingkasanSR(D);
+  const [channel, setChannel] = useState<'' | 'GT' | 'MT'>('');
+  const { data, aktivitas, channelToko } = useData();
+  const rows = useRingkasanSR(D).filter((r) => !channel || r.channel === channel);
   const tot = rows.reduce(
     (a, r) => ({
       kunjungan: a.kunjungan + r.kunjungan,
@@ -63,10 +70,13 @@ export function DashboardPage() {
   );
 
   const aging = useMemo(() => {
-    const f = data.rovi.map((x) => nilaiFaktur(x, D)).filter((x): x is FakturDinilai => !!x);
+    const f = data.rovi
+      .filter((x) => !channel || channelToko(x.kode_toko) === channel)
+      .map((x) => nilaiFaktur(x, D))
+      .filter((x): x is FakturDinilai => !!x);
     const total = f.reduce((s, x) => s + x.sisa_tagihan, 0);
     return { total, buckets: BUCKET.map((b) => ({ ...b, nilai: f.filter(b.test).reduce((s, x) => s + x.sisa_tagihan, 0), n: f.filter(b.test).length })) };
-  }, [data.rovi, D]);
+  }, [data.rovi, D, channel, channelToko]);
 
   const janjiHariIni = useMemo(() => {
     const last = penagihanTerakhir(aktivitas.penagihan);
@@ -76,7 +86,14 @@ export function DashboardPage() {
   const pct = tot.target ? Math.round((tot.terkumpul / tot.target) * 100) : 0;
 
   return (
-    <AdminPage title="Dashboard" description="Ringkasan kunjungan, penagihan, dan order semua salesman." actions={<div className="w-72"><DateNav value={D} onChange={setD} /></div>}>
+    <AdminPage title="Dashboard" description="Ringkasan kunjungan, penagihan, dan order semua salesman." actions={
+        <>
+          <Segmented label="Channel" value={channel} onChange={setChannel} options={[{ value: '', label: 'Semua' }, { value: 'GT', label: 'GT' }, { value: 'MT', label: 'MT' }]} />
+          <div className="w-72">
+            <DateNav value={D} onChange={setD} />
+          </div>
+        </>
+      }>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <SummaryCard label="Kunjungan selesai" icon={<CheckCircle2 size={12} />} value={`${tot.selesai}/${tot.kunjungan}`} accent="green" />
         <SummaryCard label="Target tagih" icon={<Target size={12} />} value={formatRupiah(tot.target)} />
@@ -104,6 +121,7 @@ export function DashboardPage() {
                 <th className="text-right">Terkumpul</th>
                 <th className="text-right">Sisa</th>
                 <th className="text-right">Janji / Bad debt</th>
+                <th className="text-right">MSL untrans.</th>
                 <th className="text-right">PO</th>
               </tr>
             }
@@ -111,12 +129,14 @@ export function DashboardPage() {
             {rows.map((r) => (
               <tr key={r.kode}>
                 <td>
-                  <div className="font-medium text-slate-900">{r.nama}</div>
+                  <div className="flex items-center gap-1.5 font-medium text-slate-900">
+                    {r.nama} <Badge tone={r.channel === 'MT' ? 'violet' : 'gray'} dot={false}>{r.channel}</Badge>
+                  </div>
                   <div className="text-xs text-slate-500">{r.kode}</div>
                 </td>
                 <td className="min-w-[140px]">
                   <div className="mb-1 text-xs tabular text-slate-600">
-                    {r.selesai}/{r.kunjungan} selesai · {r.perluDitagih} perlu ditagih
+                    {r.selesai}/{r.kunjungan} {r.channel === 'MT' ? 'toko order' : `selesai · ${r.perluDitagih} perlu ditagih`}
                   </div>
                   <ProgressBar value={r.selesai} max={r.kunjungan} tone="green" />
                 </td>
@@ -126,6 +146,7 @@ export function DashboardPage() {
                 <td className="text-right tabular">
                   {r.janji} / <span className={r.badDebt ? 'text-red-600' : ''}>{r.badDebt}</span>
                 </td>
+                <td className={`text-right tabular ${r.mslWarning ? 'font-semibold text-red-600' : 'text-slate-400'}`}>{r.channel === 'MT' ? r.mslWarning : '–'}</td>
                 <td className="whitespace-nowrap text-right tabular">
                   {formatRupiah(r.poNilai)}
                   <div className="text-xs text-slate-500">{r.poCount} PO</div>

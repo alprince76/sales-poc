@@ -9,6 +9,10 @@ import { AktivitasPage, RutePage, TagihanPage, TokoPage } from './pages/sales/Sa
 import { SalesSessionProvider } from './pages/sales/session';
 import { VisitPage } from './pages/sales/VisitPage';
 import { useData } from './state';
+import { Home } from './pages/Home';
+import { MslPage } from './pages/admin/MslPage';
+import { MtAktivitasPage, MtLayout, MtOrderPage, MtRutePage, MtTokoListPage } from './pages/mt/MtPages';
+import { MtDivisiPage, MtPOPage, MtTokoPage } from './pages/mt/MtStore';
 
 function Splash() {
   return (
@@ -35,7 +39,27 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/sales" replace />} />
+      <Route path="/" element={<Home />} />
+      <Route path="/gt/*" element={<Navigate to="/sales" replace />} />
+      <Route
+        path="/mt/*"
+        element={
+          <SalesSessionProvider channel="MT" storageKey="svdi-v2-mt-session">
+            <Routes>
+              <Route path="toko/:kode" element={<MtTokoPage />} />
+              <Route path="toko/:kode/divisi/:divisi" element={<MtDivisiPage />} />
+              <Route path="toko/:kode/po" element={<MtPOPage />} />
+              <Route element={<MtLayout />}>
+                <Route index element={<MtRutePage />} />
+                <Route path="toko" element={<MtTokoListPage />} />
+                <Route path="order" element={<MtOrderPage />} />
+                <Route path="aktivitas" element={<MtAktivitasPage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/mt" replace />} />
+            </Routes>
+          </SalesSessionProvider>
+        }
+      />
       <Route
         path="/sales/*"
         element={
@@ -60,9 +84,10 @@ export function App() {
         <Route path="penagihan" element={<PenagihanPage />} />
         <Route path="po" element={<POPage />} />
         <Route path="stok" element={<StokPage />} />
+        <Route path="msl" element={<MslPage />} />
         <Route path="data" element={<DataPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/sales" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

@@ -80,11 +80,13 @@ const KATALOG = {
 
 const produk = [];
 const rules = [];
+// SKU yang sudah tidak aktif (discontinued) — tidak boleh tampil di daftar MSL.
+const NONAKTIF = new Set(['YUP-009', 'HUK-008', 'KOE-009']);
 const PREFIX = { Danone: 'DAN', Yupi: 'YUP', Huki: 'HUK', 'Koepoe-Koepoe': 'KOE' };
 for (const [divisi, items] of Object.entries(KATALOG)) {
   items.forEach(([nama, kategori, harga, satuan, moq, kelipatan, channel], i) => {
     const kode = `${PREFIX[divisi]}-${String(i + 1).padStart(3, '0')}`;
-    produk.push({ kode_sku: kode, nama_sku: nama, divisi, kategori, harga, channel });
+    produk.push({ kode_sku: kode, nama_sku: nama, divisi, kategori, harga, channel, status_aktif: NONAKTIF.has(kode) ? 'TIDAK' : 'YA' });
     rules.push({ kode_sku: kode, satuan, moq, kelipatan });
   });
 }
@@ -122,6 +124,7 @@ const masterV2 = master.map((m) => {
     tipe_outlet: pick(TIPE),
     limit_kredit: limit,
     status_blokir: blokir ? 'YA' : 'TIDAK',
+    channel: 'GT',
   };
 });
 // Pastikan TEH LENI (contoh demo utama) tidak diblokir.
@@ -151,6 +154,82 @@ for (const kode of tokoPjp) {
 }
 histori.sort((a, b) => a.kode_toko.localeCompare(b.kode_toko) || a.tanggal_po - b.tanggal_po);
 
+// ── Modern Trade (MT): SR, outlet, PJP, MSL, histori ──────────────────
+// RNG terpisah supaya data GT di atas tidak berubah.
+const randMT = rng(20261111);
+const pickMT = (arr) => arr[Math.floor(randMT() * arr.length)];
+const intMT = (a, b) => a + Math.floor(randMT() * (b - a + 1));
+const D0 = '2026-11-09';
+const isoAdd = (iso, n) => new Date(Date.UTC(...iso.split('-').map((v, i) => (i === 1 ? v - 1 : +v))) + n * 86_400_000).toISOString().slice(0, 10);
+const HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const SR_MT = [
+  { kode: 'SLSM01', nama: 'Rina', bw: 'CBN - MT RINA' },
+  { kode: 'SLSM02', nama: 'Dodi', bw: 'CBN - MT DODI' },
+];
+const FORMAT = ['Swalayan', 'Minimarket', 'Supermarket', 'Toserba', 'Mart'];
+const NAMA = ['Sinar Jaya', 'Mitra Abadi', 'Bintang Lima', 'Sumber Rezeki', 'Cahaya Baru', 'Harapan Kita', 'Prima', 'Sejahtera', 'Anugerah', 'Makmur Sentosa',
+  'Berkah Utama', 'Citra', 'Gemilang', 'Indah Permai', 'Kencana', 'Lestari', 'Mulia', 'Nusantara', 'Purnama', 'Sentosa Raya', 'Tunas Baru', 'Utama Jaya',
+  'Wijaya', 'Asri', 'Bahagia', 'Damai', 'Family', 'Gading', 'Hikmah', 'Jaya Abadi'];
+const AREA = ['Bojonggede', 'Citeureup', 'Cileungsi', 'Gunung Putri', 'Cibinong', 'Sukaraja'];
+const masterMT = [];
+const pjpMT = [];
+let no = 0;
+for (const sr of SR_MT) {
+  for (let d = 0; d < 6; d++) {
+    const n = 5;
+    for (let u = 1; u <= n; u++) {
+      no++;
+      const kode = `MT${String(no).padStart(5, '0')}`;
+      const nama = `${pickMT(FORMAT).toUpperCase()} ${NAMA[(no - 1) % NAMA.length].toUpperCase()}${no > NAMA.length ? ` ${Math.ceil(no / NAMA.length)}` : ''}`;
+      const area = pickMT(AREA);
+      masterMT.push({
+        kode_salesman: sr.kode, nama_salesman: sr.nama, salesman_bw: sr.bw, kode_toko: kode, nama_toko: nama, area,
+        alamat: `Jl. ${pickMT(JALAN)} No. ${intMT(1, 180)}, ${area}`,
+        tipe_outlet: nama.split(' ')[0] === 'SUPERMARKET' ? 'Supermarket' : 'Minimarket',
+        limit_kredit: intMT(10, 30) * 5_000_000,
+        status_blokir: 'TIDAK',
+        channel: 'MT',
+      });
+      const tgl = isoAdd(D0, d);
+      pjpMT.push({ kode_salesman: sr.kode, nama_salesman: sr.nama, tanggal_kunjungan: excelSerial(tgl), hari: HARI[d], kode_toko: kode, nama_toko: nama, urutan: u });
+    }
+  }
+}
+const aktifSku = produk.filter((p) => !NONAKTIF.has(p.kode_sku));
+const msl = [];
+for (const m of masterMT) {
+  // 12–20 SKU listed + beberapa non-aktif listed (harus tersaring) + 2 SKU tidak listed.
+  const listed = new Set();
+  const target = intMT(12, 20);
+  while (listed.size < target) listed.add(pickMT(aktifSku).kode_sku);
+  for (const k of NONAKTIF) if (randMT() < 0.5) listed.add(k);
+  for (const k of listed) msl.push({ kode_toko: m.kode_toko, kode_sku: k, status_listed: 'YES' });
+  const tidak = new Set();
+  while (tidak.size < 2) {
+    const k = pickMT(aktifSku).kode_sku;
+    if (!listed.has(k)) tidak.add(k);
+  }
+  for (const k of tidak) msl.push({ kode_toko: m.kode_toko, kode_sku: k, status_listed: 'NO' });
+  // Histori relatif ke tanggal kunjungan: ±55% masih aktif (≤ 28 hari), ±30% lewat 30 hari, ±15% belum pernah.
+  const pj = pjpMT.find((p) => p.kode_toko === m.kode_toko);
+  const tglKunjungan = isoAdd(D0, HARI.indexOf(pj.hari));
+  for (const k of listed) {
+    if (NONAKTIF.has(k)) continue;
+    const r = ruleOf.get(k);
+    const x = randMT();
+    if (x < 0.15) continue;
+    const terakhir = x < 0.7 ? intMT(3, 28) : intMT(31, 120);
+    for (let lalu = terakhir, i = 0; lalu <= 180 && i < 4; lalu += intMT(25, 45), i++)
+      histori.push({ kode_toko: m.kode_toko, kode_sku: k, tanggal_po: excelSerial(isoAdd(tglKunjungan, -lalu)), qty: r.moq * intMT(1, 3) });
+  }
+  // SKU tidak listed yang pernah dibeli (tampil tanpa warning).
+  const t0 = [...tidak][0];
+  histori.push({ kode_toko: m.kode_toko, kode_sku: t0, tanggal_po: excelSerial(isoAdd(tglKunjungan, -intMT(5, 60))), qty: ruleOf.get(t0).moq });
+}
+masterV2.push(...masterMT);
+const pjpV2 = [...pjp, ...pjpMT];
+histori.sort((a, b) => a.kode_toko.localeCompare(b.kode_toko) || a.tanggal_po - b.tanggal_po);
+
 // ── Tulis ────────────────────────────────────────────────────────────
 const setSheet = (name, rows, dateCols = []) => {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -169,12 +248,17 @@ const setSheet = (name, rows, dateCols = []) => {
   else XLSX.utils.book_append_sheet(wb, ws, name);
 };
 setSheet('Master_Toko', masterV2);
+setSheet('PJP', pjpV2, ['tanggal_kunjungan']);
+setSheet('MSL', msl);
 setSheet('Produk', produk);
 setSheet('Order_Rules', rules);
 setSheet('Histori_Sales', histori, ['tanggal_po']);
 
 // README sheet: tambahkan keterangan
 const readme = XLSX.utils.sheet_to_json(wb.Sheets.README, { header: 1 });
+if (!readme.some((r) => String(r[0] ?? '').startsWith('v3:'))) {
+  readme.push(['v3: Modern Trade — SR SLSM01/SLSM02, outlet MT00001–MT00060 (channel=MT), PJP 9–14 Nov, sheet MSL (status_listed YES/NO), Produk.status_aktif = DUMMY.']);
+}
 if (!readme.some((r) => String(r[0] ?? '').startsWith('v2:'))) {
   readme.push([''], ['v2: Master_Toko + alamat/tipe_outlet/limit_kredit/status_blokir; sheet Produk, Order_Rules, Histori_Sales (Mei–Okt 2026) = DUMMY.']);
   wb.Sheets.README = XLSX.utils.aoa_to_sheet(readme);
@@ -182,4 +266,4 @@ if (!readme.some((r) => String(r[0] ?? '').startsWith('v2:'))) {
 
 const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', compression: true });
 for (const p of OUT) writeFileSync(p, buf);
-console.log(`produk=${produk.length} rules=${rules.length} histori=${histori.length} master=${masterV2.length} blokir=${masterV2.filter((m) => m.status_blokir === 'YA').length}`);
+console.log(`mt_outlet=${masterMT.length} msl=${msl.length} produk=${produk.length} rules=${rules.length} histori=${histori.length} master=${masterV2.length} blokir=${masterV2.filter((m) => m.status_blokir === 'YA').length}`);

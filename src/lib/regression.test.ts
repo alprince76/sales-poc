@@ -32,18 +32,24 @@ beforeAll(() => {
     produk: parsed.produk.valid,
     rules: parsed.rules.valid,
     histori: parsed.histori.valid,
+    msl: parsed.msl.valid,
   };
 });
 
 describe('Regresi Dummy_ROVI_PJP.xlsx', () => {
   it('semua baris dummy valid', () => {
-    for (const k of ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori'] as const) {
+    for (const k of ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl'] as const) {
       expect(parsed[k].kolomHilang).toEqual([]);
       expect(parsed[k].error).toEqual([]);
     }
-    expect(ds.master).toHaveLength(1399);
+    // GT asli: 1399 toko/kunjungan; MT dummy: +60 outlet & +60 kunjungan.
+    expect(ds.master.filter((m) => m.channel === 'GT')).toHaveLength(1399);
+    expect(ds.master.filter((m) => m.channel === 'MT')).toHaveLength(60);
     expect(ds.rovi).toHaveLength(1105);
-    expect(ds.pjp).toHaveLength(1399);
+    expect(ds.pjp.filter((p) => !p.kode_toko.startsWith('MT'))).toHaveLength(1399);
+    expect(ds.pjp.filter((p) => p.kode_toko.startsWith('MT'))).toHaveLength(60);
+    expect(ds.msl.length).toBeGreaterThan(900);
+    expect(ds.produk.filter((p) => p.status_aktif === false).map((p) => p.kode_sku)).toEqual(['YUP-009', 'HUK-008', 'KOE-009']);
     expect(ds.produk).toHaveLength(40);
     expect(ds.rules).toHaveLength(40);
     expect(ds.histori.length).toBeGreaterThan(10_000);
