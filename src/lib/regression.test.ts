@@ -63,18 +63,36 @@ describe('Regresi Dummy_ROVI_PJP.xlsx', () => {
     // 9 Nov = PJP Minggu 2 Senin (TK SRC FAIDAN ada di rute Arli).
     expect(ds.pjp.some((p) => p.kode_salesman === '000024' && p.tanggal_kunjungan === D && p.kode_toko === 'A01139')).toBe(true);
     expect(ds.msl.length).toBeGreaterThan(900);
-    expect(ds.produk.filter((p) => p.status_aktif === false).map((p) => p.kode_sku)).toEqual(['10202153', '10302136', '10402153']);
+    expect(ds.produk.filter((p) => p.status_aktif === false).map((p) => p.kode_sku)).toEqual(['123906', '112403', '124021', '119741']);
     expect(ds.rovi.every((f) => ['DNE', 'CBN', 'MRS'].includes(f.divisi ?? ''))).toBe(true);
-    expect(ds.produk).toHaveLength(40);
-    expect(ds.rules).toHaveLength(40);
+    expect(ds.produk).toHaveLength(62);
+    expect(ds.rules).toHaveLength(62);
     expect(ds.histori.length).toBeGreaterThan(10_000);
     expect(ds.master.filter((m) => m.status_blokir).map((m) => m.kode_toko)).toEqual(['018568', '040032']);
     // v5: customer master, isi karton, price list GT + MT.
     expect(ds.master.every((m) => m.rpp13 !== undefined)).toBe(true);
     expect(ds.master.filter((m) => m.channel === 'MT').every((m) => m.cust_group)).toBe(true);
     expect(ds.rules.every((r) => (r.isi_karton ?? 0) >= r.moq)).toBe(true);
-    expect(ds.price).toHaveLength(80);
+    expect(ds.price).toHaveLength(124);
     expect(ds.produk.every((p) => p.new_material && p.sub_brand)).toBe(true);
+  });
+
+  it('v7: kode, principal & MOQ produk = Min SKU Items NEFOKAM 09-11-2026', () => {
+    const src = new Map<string, { principal: string; min: number }>();
+    for (const l of readFileSync(fileURLToPath(new URL('../../docs/source/Min_SKU_Items_NEFOKAM_09_Nov_2026.md', import.meta.url)), 'utf8').split('\n')) {
+      const c = l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((x) => x.trim());
+      if (c.length === 7 && /^\w+$/.test(c[3]) && c[0] !== 'Barcode') src.set(c[3], { principal: c[2], min: Number(c[6]) || 0 });
+    }
+    const moq = new Map(ds.rules.map((r) => [r.kode_sku, r.moq]));
+    for (const p of ds.produk) {
+      expect(src.has(p.kode_sku), p.kode_sku).toBe(true);
+      expect(p.divisi).toBe(src.get(p.kode_sku)!.principal);
+      expect(moq.get(p.kode_sku)).toBe(Math.max(1, src.get(p.kode_sku)!.min));
+    }
+    expect(moq.get('124024')).toBe(6); // Huki CB Zak
+    expect(moq.get('113785')).toBe(24); // Yupi Gummi Pizza
+    expect(moq.get('112405')).toBe(3); // Yupi Milly Moos
+    expect(ds.produk.find((p) => p.kode_sku === '124024')?.divisi).toBe('PT DISTRIVERSA BUANAMAS');
   });
 
   it('Kunjungan Hari Ini Yudha (000033) @ 2026-11-09 sama persis dengan Contoh_Output_Sales', () => {

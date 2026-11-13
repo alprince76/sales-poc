@@ -1,7 +1,8 @@
 /**
  * Membangun Dummy_ROVI_PJP.xlsx (deterministik, seed tetap).
  *  - GT (v6): data ASLI MD dari docs/source/*.md (Customer Master, PJP SDR18, DI AWAL)
- *  - Produk, Order_Rules, Histori_Sales, Price_List, MT/MSL: dummy
+ *  - Produk/Order_Rules (v7): kode, nama, principal, MOQ ASLI dari Min SKU NEFOKAM; harga/kategori dummy
+ *  - Histori_Sales, Price_List, MT/MSL: dummy
  *  - Contoh_Output_Sales & Contoh_Detail_Toko dihitung ulang (acuan test regresi)
  *
  * Jalankan: node scripts/gen-dummy.mjs   (sumber: docs/original/Dummy_ROVI_PJP.xlsx)
@@ -25,70 +26,99 @@ const rand = rng(20261109);
 const pick = (arr) => arr[Math.floor(rand() * arr.length)];
 const int = (a, b) => a + Math.floor(rand() * (b - a + 1));
 
-// ── Produk + Order Rules ─────────────────────────────────────────────
-// [nama, kategori, harga, satuan, moq, kelipatan, channel]
-const KATALOG = {
-  Danone: [
-    ['SGM Eksplor 1+ Vanila 400gr', 'Susu Pertumbuhan', 48500, 'Pcs', 6, 6, 'GT'],
-    ['SGM Eksplor 1+ Madu 900gr', 'Susu Pertumbuhan', 98000, 'Pcs', 3, 3, 'GT'],
-    ['SGM Eksplor 3+ Vanila 400gr', 'Susu Pertumbuhan', 47000, 'Pcs', 6, 6, 'GT'],
-    ['SGM Ananda 0-6 Bulan 400gr', 'Susu Formula', 55500, 'Pcs', 3, 3, 'GT'],
-    ['Bebelac 3 Vanila 800gr', 'Susu Pertumbuhan', 142000, 'Pcs', 2, 1, 'GT'],
-    ['Bebelac 4 Madu 800gr', 'Susu Pertumbuhan', 139000, 'Pcs', 2, 1, 'GT'],
-    ['Nutrilon Royal 3 800gr', 'Susu Pertumbuhan', 285000, 'Pcs', 1, 1, 'MT'],
-    ['SGM Bunda Cokelat 150gr', 'Susu Ibu Hamil', 29500, 'Pcs', 12, 6, 'GT'],
-    ['Milna Bubur Bayi Beras Merah 120gr', 'Makanan Bayi', 14500, 'Pcs', 12, 12, 'GT'],
-    ['Milna Biskuit Bayi Original 130gr', 'Makanan Bayi', 16000, 'Pcs', 12, 12, 'GT'],
-  ],
-  Yupi: [
-    ['Yupi Milly Moos w/ Milk Hanging 24x108gr', 'Permen Gummy', 168000, 'Pcs', 3, 1, 'GT'],
-    ['Yupi Gummy Bears 24x18gr', 'Permen Gummy', 52000, 'Box', 4, 2, 'GT'],
-    ['Yupi Strawberry Kiss 24x18gr', 'Permen Gummy', 52000, 'Box', 4, 2, 'GT'],
-    ['Yupi Fruit Salad 24x18gr', 'Permen Gummy', 52000, 'Box', 4, 2, 'GT'],
-    ['Yupi Gummy Worms Hanging 12x45gr', 'Permen Gummy', 78000, 'Pcs', 3, 1, 'GT'],
-    ['Yupi Burger Hanging 24x9gr', 'Permen Gummy', 46000, 'Pcs', 5, 1, 'GT'],
-    ['Yupi Pizza Hanging 24x9gr', 'Permen Gummy', 46000, 'Pcs', 5, 1, 'GT'],
-    ['Yupi Choco Pop 12x45gr', 'Permen Gummy', 82000, 'Box', 2, 1, 'GT'],
-    ['Yupi Party Pack 500gr', 'Permen Gummy', 61000, 'Pcs', 2, 1, 'MT'],
-    ['Yupi Sour Bites 24x18gr', 'Permen Gummy', 54000, 'Box', 4, 2, 'GT'],
-  ],
-  Huki: [
-    ['Huki Botol Susu PP 120ml', 'Perlengkapan Bayi', 19500, 'Pcs', 6, 6, 'GT'],
-    ['Huki Botol Susu PP 240ml', 'Perlengkapan Bayi', 24500, 'Pcs', 6, 6, 'GT'],
-    ['Huki Dot Silikon Bulat S', 'Perlengkapan Bayi', 9500, 'Pcs', 12, 12, 'GT'],
-    ['Huki Dot Silikon Bulat M', 'Perlengkapan Bayi', 9500, 'Pcs', 12, 12, 'GT'],
-    ['Huki Empeng Bayi Cherry', 'Perlengkapan Bayi', 12500, 'Pcs', 12, 6, 'GT'],
-    ['Huki Tissue Basah Bayi 50s', 'Perawatan Bayi', 11000, 'Pcs', 12, 12, 'GT'],
-    ['Huki Sikat Botol & Dot', 'Perlengkapan Bayi', 21000, 'Pcs', 6, 6, 'GT'],
-    ['Huki Gigitan Bayi Buah', 'Perlengkapan Bayi', 17500, 'Pcs', 6, 6, 'MT'],
-    ['Huki Cotton Bud Bayi 100s', 'Perawatan Bayi', 8500, 'Pcs', 12, 12, 'GT'],
-    ['Huki Botol Susu Wide Neck 150ml', 'Perlengkapan Bayi', 39000, 'Pcs', 3, 3, 'GT'],
-  ],
-  'Koepoe-Koepoe': [
-    ['Koepoe Pewarna Merah Tua 30ml', 'Pewarna Makanan', 6500, 'Pcs', 24, 12, 'GT'],
-    ['Koepoe Pewarna Hijau Daun 30ml', 'Pewarna Makanan', 6500, 'Pcs', 24, 12, 'GT'],
-    ['Koepoe Pewarna Kuning Telur 30ml', 'Pewarna Makanan', 6500, 'Pcs', 24, 12, 'GT'],
-    ['Koepoe Pasta Pandan 30ml', 'Perisa Makanan', 9000, 'Pcs', 12, 12, 'GT'],
-    ['Koepoe Pasta Moka 30ml', 'Perisa Makanan', 9000, 'Pcs', 12, 12, 'GT'],
-    ['Koepoe Essence Vanili 30ml', 'Perisa Makanan', 7500, 'Pcs', 12, 12, 'GT'],
-    ['Koepoe Baking Powder Double Acting 45gr', 'Bahan Kue', 5500, 'Pcs', 24, 12, 'GT'],
-    ['Koepoe Soda Kue 81gr', 'Bahan Kue', 6000, 'Pcs', 24, 12, 'GT'],
-    ['Koepoe Bubuk Cokelat 100gr', 'Bahan Kue', 18500, 'Pcs', 6, 6, 'MT'],
-    ['Koepoe Agar-Agar Plain 7gr', 'Bahan Kue', 3500, 'Pcs', 48, 24, 'GT'],
-  ],
-};
+// ── Produk + Order Rules (v7) ────────────────────────────────────────
+// Kode SKU, nama, principal & MOQ ASLI dari "Min SKU Items NEFOKAM 09 Nov 2026"
+// (docs/source/Min_SKU_Items_NEFOKAM_09_Nov_2026.md). Kategori, harga & channel = dummy.
+const MINSKU = new Map(); // SKU → { barcode, pcp, principal, nama, aktif, min }
+for (const l of readFileSync('docs/source/Min_SKU_Items_NEFOKAM_09_Nov_2026.md', 'utf8').split('\n')) {
+  if (!l.startsWith('|') || /^\|\s*-{3}/.test(l)) continue;
+  const c = l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((x) => x.trim());
+  if (c.length !== 7 || c[0] === 'Barcode') continue;
+  MINSKU.set(c[3], { barcode: c[0], pcp: c[1], principal: c[2], nama: c[4], aktif: c[5] === 'Y', min: Number(c[6]) || 0 });
+}
+// [kode SKU, kategori, harga per Pcs (dummy), channel]
+const KATALOG = [
+  // SARI HUSADA / NIS / BEBELAC (Danone)
+  ['127868', 'Susu Pertumbuhan', 48500, 'GT'],
+  ['127865', 'Susu Pertumbuhan', 48500, 'GT'],
+  ['127864', 'Susu Pertumbuhan', 19500, 'GT'],
+  ['127879', 'Susu Pertumbuhan', 98000, 'GT'],
+  ['127870', 'Susu Pertumbuhan', 47000, 'GT'],
+  ['127873', 'Susu Pertumbuhan', 47000, 'GT'],
+  ['127855', 'Susu Formula', 55500, 'GT'],
+  ['127860', 'Susu Formula', 54500, 'GT'],
+  ['115857', 'Susu Ibu Hamil', 29500, 'GT'],
+  ['129333', 'Susu Pertumbuhan', 3500, 'GT'],
+  ['128558', 'Susu Formula', 39000, 'GT'],
+  ['128563', 'Susu Pertumbuhan', 38000, 'GT'],
+  ['128562', 'Susu Pertumbuhan', 72000, 'GT'],
+  ['129158', 'Susu Pertumbuhan', 135000, 'MT'],
+  ['129159', 'Susu Pertumbuhan', 285000, 'MT'],
+  ['123906', 'Susu Pertumbuhan', 48000, 'GT'], // versi lama (GRD 2.0) → demo non-aktif
+  // YUPI INDO JELLY GUM
+  ['112405', 'Permen Gummy', 10500, 'GT'],
+  ['112401', 'Permen Gummy', 10500, 'GT'],
+  ['115304', 'Permen Gummy', 10500, 'GT'],
+  ['112854', 'Permen Gummy', 4500, 'GT'],
+  ['112856', 'Permen Gummy', 4500, 'GT'],
+  ['112857', 'Permen Gummy', 4500, 'GT'],
+  ['113443', 'Permen Gummy', 4500, 'GT'],
+  ['113785', 'Permen Gummy', 2000, 'GT'],
+  ['114253', 'Permen Gummy', 2000, 'GT'],
+  ['115646', 'Permen Gummy', 2500, 'GT'],
+  ['129320', 'Permen Gummy', 2500, 'GT'],
+  ['123990', 'Permen Gummy', 6000, 'GT'],
+  ['127459', 'Permen Gummy', 5000, 'GT'],
+  ['112795', 'Permen Gummy', 5500, 'MT'],
+  ['112403', 'Permen Gummy', 10500, 'GT'], // demo non-aktif
+  // PT DISTRIVERSA BUANAMAS (Huki)
+  ['124024', 'Perawatan Bayi', 8500, 'GT'],
+  ['124025', 'Perawatan Bayi', 5500, 'GT'],
+  ['124027', 'Perawatan Bayi', 11000, 'GT'],
+  ['124033', 'Perawatan Bayi', 9500, 'GT'],
+  ['127809', 'Perlengkapan Bayi', 19500, 'GT'],
+  ['127820', 'Perlengkapan Bayi', 24500, 'GT'],
+  ['127808', 'Perlengkapan Bayi', 15000, 'GT'],
+  ['127821', 'Perlengkapan Bayi', 9500, 'GT'],
+  ['127823', 'Perlengkapan Bayi', 9500, 'GT'],
+  ['127824', 'Perlengkapan Bayi', 12500, 'GT'],
+  ['127825', 'Perlengkapan Bayi', 21000, 'GT'],
+  ['127831', 'Perawatan Bayi', 14000, 'GT'],
+  ['127832', 'Perawatan Bayi', 24000, 'GT'],
+  ['127833', 'Perawatan Bayi', 42000, 'MT'],
+  ['124021', 'Perawatan Bayi', 9000, 'GT'], // demo non-aktif
+  // Koepoe-Koepoe (kode PCP 1Y)
+  ['122121', 'Pewarna Makanan', 6500, 'GT'],
+  ['122122', 'Pewarna Makanan', 6500, 'GT'],
+  ['128303', 'Pewarna Makanan', 6500, 'GT'],
+  ['122111', 'Perisa Makanan', 9000, 'GT'],
+  ['122185', 'Perisa Makanan', 9000, 'GT'],
+  ['122113', 'Perisa Makanan', 9000, 'GT'],
+  ['122097', 'Bahan Kue', 5500, 'GT'],
+  ['122098', 'Bahan Kue', 6000, 'GT'],
+  ['122108', 'Bahan Kue', 7500, 'GT'],
+  ['122095', 'Bumbu', 9500, 'GT'],
+  ['128273', 'Bumbu', 1000, 'GT'],
+  ['128935', 'Bumbu', 2000, 'GT'],
+  ['128932', 'Bumbu', 1500, 'GT'],
+  ['129167', 'Bumbu', 5000, 'GT'],
+  ['129170', 'Bumbu', 18500, 'MT'],
+  ['119741', 'Pewarna Makanan', 6000, 'GT'], // demo non-aktif
+];
 
 const produk = [];
 const rules = [];
-// SKU yang sudah tidak aktif (discontinued) — tidak boleh tampil di daftar MSL.
-const NONAKTIF = new Set(['YUP-009', 'HUK-008', 'KOE-009']);
-const PREFIX = { Danone: 'DAN', Yupi: 'YUP', Huki: 'HUK', 'Koepoe-Koepoe': 'KOE' };
-for (const [divisi, items] of Object.entries(KATALOG)) {
-  items.forEach(([nama, kategori, harga, satuan, moq, kelipatan, channel], i) => {
-    const kode = `${PREFIX[divisi]}-${String(i + 1).padStart(3, '0')}`;
-    produk.push({ kode_sku: kode, nama_sku: nama, divisi, kategori, harga, channel, status_aktif: NONAKTIF.has(kode) ? 'TIDAK' : 'YA' });
-    rules.push({ kode_sku: kode, satuan, moq, kelipatan });
+// SKU versi lama yang sudah tergantikan (DUMMY: di file semuanya Status_Active = Y) — tidak boleh tampil di MSL.
+const NONAKTIF = new Set(['123906', '112403', '124021', '119741']);
+for (const [kode, kategori, harga, channel] of KATALOG) {
+  const s = MINSKU.get(kode);
+  if (!s) throw new Error(`SKU ${kode} tidak ada di Min SKU NEFOKAM`);
+  produk.push({
+    kode_sku: kode, nama_sku: s.nama, divisi: s.principal, kategori, harga, channel,
+    status_aktif: NONAKTIF.has(kode) || !s.aktif ? 'TIDAK' : 'YA', kode_principal: s.pcp, barcode: s.barcode,
   });
+  // Min_SKU_Items 0 = tanpa minimum → MOQ 1.
+  rules.push({ kode_sku: kode, satuan: 'Pcs', moq: Math.max(1, s.min), kelipatan: 1 });
 }
 
 // ── Workbook (sheet produk lama + README diambil dari sumber) ──────────
@@ -343,19 +373,6 @@ const masterV2 = [...master, ...masterMT];
 const pjpV2 = [...pjp, ...pjpMT];
 histori.sort((a, b) => a.kode_toko.localeCompare(b.kode_toko) || a.tanggal_po - b.tanggal_po);
 
-// ── v4: kode SAP, divisi faktur, TUNAI/KREDIT + TOP (RNG terpisah; data lain tidak bergeser) ──
-const DIV_IDX = { Danone: 1, Yupi: 2, Huki: 3, 'Koepoe-Koepoe': 4 };
-const SAP = new Map();
-for (const p of produk) {
-  const i = Number(p.kode_sku.split('-')[1]);
-  SAP.set(p.kode_sku, String(10000000 + DIV_IDX[p.divisi] * 100000 + 2000 + i * 17));
-}
-const sap = (k) => SAP.get(k) ?? k;
-for (const p of produk) p.kode_sku = sap(p.kode_sku);
-for (const r of rules) r.kode_sku = sap(r.kode_sku);
-for (const h of histori) h.kode_sku = sap(h.kode_sku);
-for (const m of msl) m.kode_sku = sap(m.kode_sku);
-
 // GT: TUNAI/KREDIT, TOP & divisi faktur sudah dari data asli (v6).
 
 // ── v5: customer master (bill address 1–4, RPP13, cust group), new material, sub brand,
@@ -384,10 +401,9 @@ for (const r of rules) {
   while (isi < r.moq) isi *= 2;
   r.isi_karton = isi;
 }
-const isiOf = new Map(rules.map((r) => [r.kode_sku, r.isi_karton]));
 for (const p of produk) {
   p.sub_brand = p.kategori;
-  p.new_material = `${p.nama_sku.toUpperCase()} 1X${isiOf.get(p.kode_sku) ?? 1}`;
+  p.new_material = p.nama_sku; // Nama_SKU asli
 }
 // Price list: GT = harga dasar; MT = +5% (dibulatkan ke Rp 100).
 const priceList = [];
@@ -479,7 +495,8 @@ const readme = [
   ['PJP 4 minggu: Minggu 1 = 2–8 Nov, Minggu 2 = 9–15 Nov (DI AWAL 9 Nov = Minggu 2 Senin), Minggu 3 = 16–22 Nov, Minggu 4 = 23–29 Nov 2026.'],
   [`ROVI: ${fakturAsli} faktur ASLI dari DI AWAL + ${noInv} faktur DUMMY (INV/2026/..) untuk sisa outstanding Customer Master.`],
   ['Master_Toko: alamat 1–4, limit kredit, TOP, RPP13 = asli. TUNAI jika limit 0 & TOP 0; TOP 0 dengan limit → KREDIT 14 hari (asumsi).'],
-  [`DUMMY: status_blokir demo (${BLOKIR.join(', ')}), area (dari kata kunci alamat), Histori_Sales, Produk/Order_Rules/Price_List, seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).`],
+  [`Produk/Order_Rules (v7): kode SKU, nama, principal (divisi), kode principal, barcode & MOQ = ASLI dari Min SKU Items NEFOKAM 09-11-2026 (${produk.length} SKU kurasi; Min 0 → MOQ 1).`],
+  [`DUMMY: status_blokir demo (${BLOKIR.join(', ')}), area (dari kata kunci alamat), Histori_Sales, harga/kategori/channel/isi karton produk, SKU non-aktif demo (${[...NONAKTIF].join(', ')}), Price_List, seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).`],
   [''],
   ['Sheet: Master_Toko, ROVI (DI AWAL), PJP, Produk, Order_Rules, Histori_Sales, MSL, Price_List, Contoh_Output_Sales, Contoh_Detail_Toko.'],
 ];
@@ -488,4 +505,5 @@ wb.Sheets.README = XLSX.utils.aoa_to_sheet(readme);
 const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', compression: true });
 for (const p of OUT) writeFileSync(p, buf);
 console.log(`gt_toko=${master.length} pjp_gt=${pjp.length} faktur_asli=${fakturAsli} faktur_dummy=${noInv} demo=${demo[1]} blokir=${BLOKIR}`);
+console.log(`principal=${[...new Set(produk.map((p) => p.divisi))].join(' | ')}`);
 console.log(`mt_outlet=${masterMT.length} msl=${msl.length} produk=${produk.length} rules=${rules.length} histori=${histori.length} master=${masterV2.length} blokir=${masterV2.filter((m) => m.status_blokir === 'YA').length}`);

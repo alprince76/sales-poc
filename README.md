@@ -65,7 +65,7 @@ npm run build     # typecheck + build produksi ke dist/
 - Kartu faktur: **kode divisi** (DNE = Danone, CBN = Combine, MRS = Mars; kode lain tampil apa adanya) → no faktur → `JT dd/mm/yyyy` → status.
 - Toko: badge **TUNAI / KREDIT · TOP n hari**. Limit kredit hanya untuk toko KREDIT GT; toko TUNAI dan MT tanpa limit.
 - Toko diblokir (GT): banner **"PO berpotensi tidak release — Selesaikan tagihan atau hubungi admin"**; PO tetap bisa disubmit dan ditandai di admin.
-- Pilih SKU (Cek Stok, PO GT/MT): combobox cari **kode SAP atau nama**. Info histori: "Biasa order ±N Pcs/bulan · Terakhir …".
+- Pilih SKU (Cek Stok, PO GT/MT): combobox cari **kode SKU atau nama**. Info histori: "Biasa order ±N Pcs/bulan · Terakhir …".
 - Tombol konfirmasi: **"Submit PO · Rp …"**.
 - Info toko GT (customer master): alamat (bill address 1–4 digabung), credit limit, TOP, average sales (RPP13), last order value/date, outstanding. Tipe outlet tidak ditampilkan.
 - Kode SKU tampil tanpa awalan "SAP"; nama SKU = kolom *new material*; MT menampilkan *sub brand*.
@@ -81,7 +81,7 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
 | Master Outlet | `Master_Toko` | kode_salesman, nama_salesman, kode_toko, nama_toko | salesman_bw, area, alamat, alamat_1..alamat_4 (bill address), tipe_outlet, cust_group (MT), rpp13 (average sales), limit_kredit, status_blokir (YA/TIDAK), channel (GT/MT), tipe_bayar (TUNAI/KREDIT), top_hari |
 | DI AWAL (AR) | `ROVI` | kode_toko, nama_toko, no_faktur, tanggal_faktur, tanggal_jatuh_tempo, nilai_faktur, sisa_tagihan | divisi (DNE/CBN/MRS/…) |
 | PJP | `PJP` | kode_salesman, nama_salesman, tanggal_kunjungan, kode_toko | hari, nama_toko, urutan |
-| Master SKU | `Produk` | kode_sku (kode SAP), nama_sku, divisi (= principal), harga | new_material (nama lengkap), sub_brand, kategori, channel (GT/MT), status_aktif (YA/TIDAK) |
+| Master SKU | `Produk` | kode_sku, nama_sku, divisi (= principal), harga | new_material (nama lengkap), sub_brand, kategori, channel (GT/MT), status_aktif (YA/TIDAK), kode_principal & barcode (info, diabaikan) |
 | Order Rules (GT) | `Order_Rules` | kode_sku, satuan, moq (per item) | isi_karton (Pcs per CAR), kelipatan (diabaikan) |
 | Price List | `Price_List` | kode_sku, harga | channel (GT/MT; kosong = semua) — menggantikan harga Master SKU |
 | Historical Sales | `Histori_Sales` | kode_toko, kode_sku, tanggal_po, qty | |
@@ -96,7 +96,8 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
   - **TUNAI/KREDIT:** toko dengan limit 0 dan TOP 0 = TUNAI. Toko dengan TOP 0 tetapi punya limit dianggap KREDIT 14 hari.
   - **PJP:** 4 minggu. Minggu 2 = 9–15 Nov, sesuai DI AWAL.
   - **ROVI:** 89 faktur asli DI AWAL ditambah faktur dummy `INV/2026/..` untuk sisa outstanding Customer Master.
-  - **Tetap dummy:** area (diturunkan dari alamat), 2 toko blokir demo, Histori Sales (≈ RPP13), Produk / Order Rules / Price List, dan seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).
+  - **Produk / Order Rules (v7):** 62 SKU kurasi dari *Min SKU Items NEFOKAM 09 Nov 2026*. Kode SKU, nama, principal (`divisi`), kode principal, barcode, dan MOQ (Min_SKU_Items; 0 berarti tanpa minimum, MOQ 1) diambil dari data asli. Principal: SARI HUSADA, NIS, PT. BEBELAC - NIS, YUPI INDO JELLY GUM, PT DISTRIVERSA BUANAMAS (Huki), dan PT. ANGGANA CATUR PRIMA (Koepoe, kode PCP 1Y, sesuai file).
+  - **Tetap dummy:** area (diturunkan dari alamat), 2 toko blokir demo, Histori Sales (≈ RPP13), harga, kategori, channel, isi karton, dan 4 SKU non-aktif demo produk, Price List, serta seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).
   - Sheet `Contoh_Output_Sales` dan `Contoh_Detail_Toko` (Yudha, 9 Nov) dihitung ulang dan menjadi acuan test regresi.
 
 ## Aturan bisnis
