@@ -1,11 +1,12 @@
 import { AlertTriangle, CheckCircle2, Plus } from 'lucide-react';
 import { useMemo } from 'react';
-import { Badge, cn, NumberStepper } from '../../components/ui';
+import { Badge, cn } from '../../components/ui';
+import { QtyUnit } from '../../components/QtyUnit';
 import { normKode } from '../../lib/billing';
 import type { ISODate } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { compliance, daftarSkuMSL, labelWarning, teksTerakhirOrder, type SkuMSL } from '../../lib/msl';
-import { bulatkanQty, historiToko, suggestedQty, validasiQty } from '../../lib/order';
+import { historiToko, suggestedQty, validasiQty } from '../../lib/order';
 import { useData } from '../../state';
 
 /**
@@ -13,7 +14,7 @@ import { useData } from '../../state';
  * (SKU di keranjang = akan ditransaksikan → warning hilang; `warningAwal` menyimpan kondisi sebelum PO).
  */
 export function useMslToko(kodeToko: string, D: ISODate, pakaiKeranjang = true): SkuMSL[] {
-  const { produk, mslIdx, trxIdx, keranjang } = useData();
+  const { produkMT: produk, mslIdx, trxIdx, keranjang } = useData();
   const k = pakaiKeranjang ? keranjang[kodeToko] : undefined;
   return useMemo(() => daftarSkuMSL({ produk, mslIdx, trxIdx }, kodeToko, D, k ?? {}), [produk, mslIdx, trxIdx, kodeToko, D, k]);
 }
@@ -32,7 +33,7 @@ export interface BarisRuteMT {
 
 /** Rute PJP SR MT pada D + ringkasan MSL per toko. */
 export function useRuteMT(sales: string, D: ISODate, urutan: 'prioritas' | 'rute' = 'prioritas'): BarisRuteMT[] {
-  const { data, produk, mslIdx, trxIdx, masterIdx, keranjang, aktivitas } = useData();
+  const { data, produkMT: produk, mslIdx, trxIdx, masterIdx, keranjang, aktivitas } = useData();
   return useMemo(() => {
     const sa = normKode(sales);
     const rows = data.pjp
@@ -71,11 +72,11 @@ export function WarningBadge({ s }: { s: Pick<SkuMSL, 'warning'> }) {
 export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISODate }) {
   const { keranjang, setQtyKeranjang, data } = useData();
   const qty = keranjang[kodeToko]?.[s.kode_sku] ?? 0;
-  const err = qty ? validasiQty(qty, s) : null;
+  const err = qty ? validasiQty(qty, s, { channel: 'MT' }) : null;
   const tambah = () => {
     const h = historiToko(data.histori, kodeToko, D).find((x) => x.kode_sku === s.kode_sku);
-    const saran = suggestedQty(h, s).qty;
-    setQtyKeranjang(kodeToko, s.kode_sku, saran || bulatkanQty(s.moq, s));
+    const saran = suggestedQty(h, { moq: 1 }).qty;
+    setQtyKeranjang(kodeToko, s.kode_sku, saran || 1);
   };
   return (
     <li className={cn('rounded-2xl border bg-white p-3 shadow-card', s.warning ? 'border-red-200 ring-1 ring-red-100' : s.diPO ? 'border-emerald-200' : 'border-slate-200/80')}>
@@ -97,28 +98,15 @@ export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISO
           )}
           <div className="text-sm font-semibold leading-snug text-slate-900">{s.nama_sku}</div>
           <div className="mt-0.5 text-xs text-slate-500">
-            SAP {s.kode_sku} · {s.kategori ?? s.divisi} · <span className="font-medium tabular text-slate-700">{formatRupiah(s.harga)}</span>/{s.satuan}
+            {s.kode_sku} · {s.sub_brand ?? s.kategori ?? s.divisi} · <span className="font-medium tabular text-slate-700">{formatRupiah(s.harga)}</span>/{s.satuan}
           </div>
           {s.warningAwal !== 'BELUM_PERNAH' && <div className={cn('mt-1 text-xs', s.warning ? 'font-medium text-red-700' : 'text-slate-500')}>{teksTerakhirOrder(s)}</div>}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {s.listed ? <Badge tone="brand" dot={false}>Listed MSL</Badge> : <Badge tone="gray" dot={false}>Tidak listed</Badge>}
-            <Badge tone="gray" dot={false}>
-              Min. {s.moq} {s.satuan}
-              {s.kelipatan > 1 ? ` · kelipatan ${s.kelipatan}` : ''}
-            </Badge>
           </div>
         </div>
-        <div className="shrink-0 self-center">
-          {qty > 0 ? (
-            <NumberStepper
-              label={`qty ${s.nama_sku}`}
-              value={qty}
-              step={s.kelipatan}
-              onIncrementFromZero={s.moq}
-              invalid={!!err}
-              onChange={(n) => setQtyKeranjang(kodeToko, s.kode_sku, n)}
-            />
-          ) : (
+        {qty === 0 && (
+          <div className="shrink-0 self-center">
             <button
               type="button"
               onClick={tambah}
@@ -130,9 +118,15 @@ export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISO
             >
               <Plus size={16} strokeWidth={2.5} /> PO
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+      {qty > 0 && (
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1 border-t border-slate-100 pt-2">
+          <QtyUnit label={`qty ${s.nama_sku}`} value={qty} isi={s.isi_karton} satuan={s.satuan} moq={1} invalid={!!err} onChange={(n) => setQtyKeranjang(kodeToko, s.kode_sku, n)} />
+          <span className="ml-auto whitespace-nowrap pt-2 text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * s.harga)}</span>
+        </div>
+      )}
       {err && (
         <p role="alert" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700">
           <AlertTriangle size={14} className="mt-px shrink-0" /> {err}

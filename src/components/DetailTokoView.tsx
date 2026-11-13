@@ -1,9 +1,10 @@
 import { ChevronLeft } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { detailToko, type DetailToko, type FakturDinilai } from '../lib/billing';
 import { getPenagihanTerakhir } from '../lib/collection';
 import { formatTanggal, type ISODate } from '../lib/dates';
 import { formatRupiah } from '../lib/format';
+import { alamatLengkap, lastOrder } from '../lib/outlet';
 import { useData } from '../state';
 import { FakturCard, usePenagihanTerakhir } from './Penagihan';
 import { Badge, cn } from './ui';
@@ -69,21 +70,63 @@ export function BayarBadge({ tipe, top }: { tipe?: string; top?: number }) {
   );
 }
 
-export function InfoOutlet({ kodeToko, tanpaLimit }: { kodeToko: string; tanpaLimit?: boolean }) {
+/** Info toko MT: Cust group + alamat (tanpa limit/TOP). */
+export function InfoOutletMT({ kodeToko }: { kodeToko: string }) {
   const { masterIdx } = useData();
   const m = masterIdx.get(kodeToko);
   if (!m) return null;
-  const items: ReactNode[] = [];
-  if (m.tipe_outlet) items.push(<Badge key="t" tone="gray" dot={false}>{m.tipe_outlet}</Badge>);
-  if (!tanpaLimit && m.tipe_bayar) items.push(<BayarBadge key="tb" tipe={m.tipe_bayar} top={m.top_hari} />);
-  if (!tanpaLimit && m.status_blokir) items.push(<Badge key="b" tone="red">Diblokir</Badge>);
-  if (!tanpaLimit && m.tipe_bayar !== 'TUNAI' && m.limit_kredit !== undefined)
-    items.push(<Badge key="l" tone="gray" dot={false}>Limit {formatRupiah(m.limit_kredit)}</Badge>);
+  const alamat = alamatLengkap(m);
   return (
     <div className="space-y-1.5">
-      {m.alamat && <p className="text-sm text-slate-600">{m.alamat}</p>}
-      {items.length > 0 && <div className="flex flex-wrap gap-1.5">{items}</div>}
+      {alamat && <p className="text-sm text-slate-600">{alamat}</p>}
+      {m.cust_group && (
+        <div className="flex flex-wrap gap-1.5">
+          <Badge tone="violet" dot={false}>
+            <span className="font-semibold">{m.cust_group}</span>
+          </Badge>
+        </div>
+      )}
     </div>
+  );
+}
+
+/**
+ * Info toko GT sesuai customer master: alamat (bill address 1–4), credit limit, TOP,
+ * average sales (RPP13), last order value/date, outstanding.
+ */
+export function InfoOutlet({ kodeToko, D, outstanding }: { kodeToko: string; D: ISODate; outstanding: number }) {
+  const { masterIdx, data, aktivitas, produk } = useData();
+  const m = masterIdx.get(kodeToko);
+  const last = useMemo(() => lastOrder(kodeToko, D, data.histori, aktivitas.po, produk), [kodeToko, D, data.histori, aktivitas.po, produk]);
+  if (!m) return null;
+  const alamat = alamatLengkap(m);
+  const tunai = m.tipe_bayar === 'TUNAI';
+  const Item = ({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) => (
+    <div className={cn('min-w-0', wide && 'col-span-2')}>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{label}</dt>
+      <dd className="mt-0.5 text-sm font-semibold tabular text-slate-900">{children}</dd>
+    </div>
+  );
+  return (
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-card" aria-label="Info toko">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <BayarBadge tipe={m.tipe_bayar} top={m.top_hari} />
+        {m.status_blokir && <Badge tone="red">Diblokir</Badge>}
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        {alamat && (
+          <Item label="Alamat" wide>
+            <span className="font-normal text-slate-700">{alamat}</span>
+          </Item>
+        )}
+        <Item label="Credit limit">{!tunai && m.limit_kredit !== undefined ? formatRupiah(m.limit_kredit) : '–'}</Item>
+        <Item label="TOP">{tunai ? 'Tunai' : m.top_hari ? `${m.top_hari} hari` : '–'}</Item>
+        <Item label="Average sales">{m.rpp13 !== undefined ? formatRupiah(m.rpp13) : '–'}</Item>
+        <Item label="Outstanding">{formatRupiah(outstanding)}</Item>
+        <Item label="Last order value">{last ? formatRupiah(last.nilai) : '–'}</Item>
+        <Item label="Last order date">{last ? formatTanggal(last.tanggal) : '–'}</Item>
+      </dl>
+    </section>
   );
 }
 
@@ -103,7 +146,7 @@ export function DetailTokoView({ kodeToko, D, onBack }: { kodeToko: string; D: I
           {d.area && ` · ${d.area}`} · {formatTanggal(D)}
         </p>
       </div>
-      <InfoOutlet kodeToko={d.kode_toko} />
+      <InfoOutlet kodeToko={d.kode_toko} D={D} outstanding={d.totalOutstanding} />
       <HarusDitagih d={d} />
       <KelompokFaktur d={d} />
     </div>

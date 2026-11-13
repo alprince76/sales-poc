@@ -36,7 +36,7 @@ export function validasiStok(
   }
   return {
     internal: internal.filter((s) => s.display > 0 || s.backroom > 0),
-    kompetitor: komp.map((k) => ({ nama_produk: k.nama_produk.trim(), qty: k.qty })),
+    kompetitor: komp.map((k) => ({ nama_produk: k.nama_produk.trim(), qty: k.qty, ...(k.satuan_input ? { satuan_input: k.satuan_input } : {}) })),
     error,
   };
 }

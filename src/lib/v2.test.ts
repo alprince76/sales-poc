@@ -124,20 +124,21 @@ const produk = gabungProduk(
 const yupi = produk[0];
 const koepoe = produk[1];
 
-describe('PO: validasi MOQ & kelipatan', () => {
+describe('PO: validasi MOQ (tanpa kelipatan, feedback 12/11)', () => {
   it('qty di bawah MOQ → pesan sesuai contoh PDF', () => {
     expect(validasiQty(2, yupi)).toBe('Minimal pemesanan untuk SKU Yupi Milly Moos w/ Milk Hanging 24x108gr adalah 3 Pcs');
     expect(validasiQty(3, yupi)).toBeNull();
     expect(validasiQty(0, yupi)).toBeNull();
   });
-  it('qty bukan kelipatan → error; SKU tanpa rule = MOQ 1', () => {
-    expect(validasiQty(30, koepoe)).toMatch(/kelipatan 12/);
-    expect(validasiQty(36, koepoe)).toBeNull();
-    expect(produk[2]).toMatchObject({ moq: 1, kelipatan: 1, satuan: 'Pcs' });
+  it('MOQ ≠ kelipatan: qty ≥ MOQ bukan kelipatan tetap valid; SKU tanpa rule = MOQ 1, isi karton 1', () => {
+    expect(validasiQty(30, koepoe)).toBeNull();
+    expect(validasiQty(25, koepoe)).toBeNull();
+    expect(validasiQty(23, koepoe)).toMatch(/Minimal pemesanan .* adalah 24 Pcs/);
+    expect(produk[2]).toMatchObject({ moq: 1, isi_karton: 1, satuan: 'Pcs' });
   });
-  it('bulatkanQty memenuhi MOQ & kelipatan', () => {
+  it('bulatkanQty hanya menaikkan ke MOQ', () => {
     expect(bulatkanQty(5, koepoe)).toBe(24);
-    expect(bulatkanQty(25, koepoe)).toBe(36);
+    expect(bulatkanQty(25, koepoe)).toBe(25);
     expect(bulatkanQty(0, koepoe)).toBe(0);
   });
 });

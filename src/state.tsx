@@ -35,7 +35,7 @@ interface Meta {
 }
 
 const semua = <V,>(v: V) => Object.fromEntries(SEMUA_TIPE.map((t) => [t, v])) as Record<TipeData, V>;
-const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [] };
+const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [], price: [] };
 const EMPTY_AKT: Aktivitas = { penagihan: [], stok: [], po: [], kunjungan: [] };
 
 function lsGet<T>(key: string): T | null {
@@ -66,7 +66,7 @@ async function fetchDummy(): Promise<DataSet> {
   const res = await fetch(DUMMY_URL);
   if (!res.ok) throw new Error(`Gagal memuat data dummy (${res.status})`);
   const p = bacaDataSet(bacaWorkbook(new Uint8Array(await res.arrayBuffer())));
-  return { master: p.master.valid, rovi: p.rovi.valid, pjp: p.pjp.valid, produk: p.produk.valid, rules: p.rules.valid, histori: p.histori.valid, msl: p.msl.valid };
+  return { master: p.master.valid, rovi: p.rovi.valid, pjp: p.pjp.valid, produk: p.produk.valid, rules: p.rules.valid, histori: p.histori.valid, msl: p.msl.valid, price: p.price.valid };
 }
 
 export function newId(): string {
@@ -90,7 +90,10 @@ interface Ctx {
   storageWarning: boolean;
   fakturIdx: FakturIndex;
   masterIdx: Map<string, MasterToko>;
+  /** Produk dengan harga GT (Price List GT → Master SKU). */
   produk: ProdukLengkap[];
+  /** Produk dengan harga MT (Price List MT → Master SKU). */
+  produkMT: ProdukLengkap[];
   salesmen: { kode: string; nama: string; channel: Channel }[];
   /** Channel per kode toko (default GT). */
   channelToko: (kodeToko: string) => Channel;
@@ -263,7 +266,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       data,
       fakturIdx: indexFaktur(data.rovi),
       masterIdx: indexMaster(data.master),
-      produk: gabungProduk(data.produk, data.rules),
+      produk: gabungProduk(data.produk, data.rules, data.price, 'GT'),
+      produkMT: gabungProduk(data.produk, data.rules, data.price, 'MT'),
       salesmen: [...seen].map(([kode, v]) => ({ kode, ...v })).sort((a, b) => a.kode.localeCompare(b.kode)),
       channelToko,
       mslIdx: indexMsl(data.msl),

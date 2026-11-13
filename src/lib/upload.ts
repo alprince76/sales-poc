@@ -89,7 +89,7 @@ export function ringkasUpload(
   if (tipe === 'rules') {
     const produkKode = new Set(data.produk.map((p) => normKode(p.kode_sku)));
     const asing = data.rules.filter((r) => !produkKode.has(normKode(r.kode_sku))).map((r) => r.kode_sku);
-    if (data.produk.length && asing.length) warning.push(`${asing.length} SKU di Order Rules tidak ada di Master Produk: ${contoh(asing)}`);
+    if (data.produk.length && asing.length) warning.push(`${asing.length} SKU di Order Rules tidak ada di Master SKU: ${contoh(asing)}`);
     return { baris: [{ label: 'Aturan SKU', nilai: data.rules.length.toLocaleString('id-ID') }], warning };
   }
 
@@ -105,6 +105,33 @@ export function ringkasUpload(
         { label: 'Baris histori', nilai: data.histori.length.toLocaleString('id-ID') },
         { label: 'Toko', nilai: toko.size.toLocaleString('id-ID') },
         { label: 'Rentang', nilai: tgl.length ? `${fmt.tanggal(tgl[0])} – ${fmt.tanggal(tgl[tgl.length - 1])}` : '–' },
+      ],
+      warning,
+    };
+  }
+
+  if (tipe === 'price') {
+    const produkKode = new Set(data.produk.map((p) => normKode(p.kode_sku)));
+    const asing = [...new Set(data.price.filter((r) => !produkKode.has(normKode(r.kode_sku))).map((r) => r.kode_sku))];
+    if (data.produk.length && asing.length) warning.push(`${asing.length} SKU di Price List tidak ada di Master SKU: ${contoh(asing)}`);
+    const ch = (c?: string) => data.price.filter((r) => (r.channel ?? '') === c).length.toLocaleString('id-ID');
+    return {
+      baris: [
+        { label: 'Harga GT', nilai: ch('GT') },
+        { label: 'Harga MT', nilai: ch('MT') },
+        { label: 'Semua channel', nilai: ch('') },
+      ],
+      warning,
+    };
+  }
+
+  if (tipe === 'msl') {
+    const toko = new Set(data.msl.map((m) => normKode(m.kode_toko)));
+    return {
+      baris: [
+        { label: 'Baris MSL', nilai: data.msl.length.toLocaleString('id-ID') },
+        { label: 'Toko', nilai: toko.size.toLocaleString('id-ID') },
+        { label: 'Listed', nilai: data.msl.filter((m) => m.status_listed).length.toLocaleString('id-ID') },
       ],
       warning,
     };

@@ -13,7 +13,7 @@ export function SkuPicker({
   produk,
   onPilih,
   terpilih,
-  placeholder = 'Cari kode SAP atau nama SKU',
+  placeholder = 'Cari kode atau nama SKU',
   label = 'Cari SKU',
 }: {
   produk: readonly ProdukLengkap[];
@@ -101,7 +101,7 @@ export function SkuPicker({
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-slate-900">{p.nama_sku}</div>
                     <div className="truncate text-xs text-slate-500">
-                      SAP {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
+                      {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                     </div>
                   </div>
                   {sudah ? (

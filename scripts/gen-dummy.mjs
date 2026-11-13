@@ -267,6 +267,44 @@ const roviV4 = rovi.map((f) => {
   return { ...f, divisi: x < 0.45 ? 'DNE' : x < 0.85 ? 'CBN' : 'MRS' };
 });
 
+// ── v5: customer master (bill address 1–4, RPP13, cust group), new material, sub brand,
+//        isi karton, price list per channel (RNG terpisah; data lain tidak bergeser) ──
+const randV5 = rng(20261113);
+const pickV5 = (arr) => arr[Math.floor(randV5() * arr.length)];
+const intV5 = (a, b) => a + Math.floor(randV5() * (b - a + 1));
+const hargaSku = new Map(produk.map((p) => [p.kode_sku, p.harga]));
+const nilaiHistori = new Map();
+for (const h of histori) nilaiHistori.set(h.kode_toko, (nilaiHistori.get(h.kode_toko) ?? 0) + h.qty * (hargaSku.get(h.kode_sku) ?? 0));
+const KEL = ['Sukamaju', 'Mekarsari', 'Cibubur', 'Harapan Jaya', 'Sukasari', 'Tengah', 'Pasir Gunung', 'Cimanggis'];
+const CUST_GROUP = ['BORMA DAKOTA GROUP', 'BORMA CIJERAH GROUP', 'YOMART GROUP', 'GRIYA PASARAYA GROUP', 'SETIABUDI GROUP', 'TIP TOP GROUP'];
+for (const m of masterV2) {
+  const jalan = m.alamat.split(',')[0];
+  m.alamat_1 = jalan;
+  m.alamat_2 = `RT ${String(intV5(1, 12)).padStart(2, '0')}/RW ${String(intV5(1, 9)).padStart(2, '0')}`;
+  m.alamat_3 = `Kel. ${pickV5(KEL)}`;
+  m.alamat_4 = m.area ?? '';
+  // RPP13: rata-rata penjualan per bulan (13 periode) — dummy dari histori 6 bulan, minimal Rp 750rb.
+  m.rpp13 = Math.max(750_000, Math.round(((nilaiHistori.get(m.kode_toko) ?? 0) / 6) / 1000) * 1000 + intV5(0, 20) * 50_000);
+  if (m.channel === 'MT') m.cust_group = pickV5(CUST_GROUP);
+}
+const ISI = [12, 24, 24, 48];
+for (const r of rules) {
+  let isi = pickV5(ISI);
+  while (isi < r.moq) isi *= 2;
+  r.isi_karton = isi;
+}
+const isiOf = new Map(rules.map((r) => [r.kode_sku, r.isi_karton]));
+for (const p of produk) {
+  p.sub_brand = p.kategori;
+  p.new_material = `${p.nama_sku.toUpperCase()} 1X${isiOf.get(p.kode_sku) ?? 1}`;
+}
+// Price list: GT = harga dasar; MT = +5% (dibulatkan ke Rp 100).
+const priceList = [];
+for (const p of produk) {
+  priceList.push({ kode_sku: p.kode_sku, channel: 'GT', harga: p.harga });
+  priceList.push({ kode_sku: p.kode_sku, channel: 'MT', harga: Math.round((p.harga * 1.05) / 100) * 100 });
+}
+
 // ── Tulis ────────────────────────────────────────────────────────────
 const setSheet = (name, rows, dateCols = []) => {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -291,9 +329,13 @@ setSheet('MSL', msl);
 setSheet('Produk', produk);
 setSheet('Order_Rules', rules);
 setSheet('Histori_Sales', histori, ['tanggal_po']);
+setSheet('Price_List', priceList);
 
 // README sheet: tambahkan keterangan
 const readme = XLSX.utils.sheet_to_json(wb.Sheets.README, { header: 1 });
+if (!readme.some((r) => String(r[0] ?? '').startsWith('v5:'))) {
+  readme.push(['v5: Master_Toko.alamat_1..4 + rpp13 + cust_group (MT); Produk.sub_brand + new_material; Order_Rules.isi_karton; sheet Price_List (GT/MT) = DUMMY.']);
+}
 if (!readme.some((r) => String(r[0] ?? '').startsWith('v4:'))) {
   readme.push(['v4: kode_sku = kode SAP 8 digit; ROVI.divisi (DNE/CBN/MRS); Master_Toko.tipe_bayar (TUNAI/KREDIT) + top_hari = DUMMY.']);
 }
@@ -302,8 +344,8 @@ if (!readme.some((r) => String(r[0] ?? '').startsWith('v3:'))) {
 }
 if (!readme.some((r) => String(r[0] ?? '').startsWith('v2:'))) {
   readme.push([''], ['v2: Master_Toko + alamat/tipe_outlet/limit_kredit/status_blokir; sheet Produk, Order_Rules, Histori_Sales (Mei–Okt 2026) = DUMMY.']);
-  wb.Sheets.README = XLSX.utils.aoa_to_sheet(readme);
 }
+wb.Sheets.README = XLSX.utils.aoa_to_sheet(readme);
 
 const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', compression: true });
 for (const p of OUT) writeFileSync(p, buf);

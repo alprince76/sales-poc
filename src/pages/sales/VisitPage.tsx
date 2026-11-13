@@ -4,12 +4,13 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HarusDitagih, InfoOutlet, KelompokFaktur, useDetailToko } from '../../components/DetailTokoView';
 import { PenagihanSheet } from '../../components/Penagihan';
 import { Badge, Button, Card, cn, EmptyState, Input, NumberStepper, SectionTitle, Segmented, Sheet, StatusBayarBadge, useToast } from '../../components/ui';
+import { QtyUnit, UnitToggle } from '../../components/QtyUnit';
 import { SkuPicker } from '../../components/SkuPicker';
 import { normKode, type FakturDinilai } from '../../lib/billing';
 import { ringkasPenagihan } from '../../lib/collection';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
-import { bulatkanQty, historiToko, suggestedQty, teksBiasaOrder, validasiPO, type HistoriSku, type ProdukLengkap } from '../../lib/order';
+import { bulatkanQty, formatQty, formatQtySingkat, historiToko, labelMoq, suggestedQty, teksBiasaOrder, validasiPO, type HistoriSku, type ProdukLengkap } from '../../lib/order';
 import { daftarSkuStok, validasiStok } from '../../lib/stock';
 import type { ItemPO, LangkahKunjungan, StokInternal, StokKompetitor } from '../../lib/types';
 import { cariKunjungan, isSelesai, LABEL_LANGKAH, LANGKAH } from '../../lib/visit';
@@ -70,7 +71,7 @@ export function VisitPage() {
                 {d.area && ` · ${d.area}`} · {formatTanggal(D)}
               </p>
             </div>
-            {selesai ? <Badge tone="green">Selesai</Badge> : !terjadwal ? <Badge tone="gray" dot={false}>Di luar jadwal</Badge> : null}
+            {selesai ? <Badge tone="green">Selesai</Badge> : !terjadwal ? <Badge tone="orange" dot={false}>Non Route</Badge> : null}
           </div>
           <Stepper step={step} status={status?.langkah ?? {}} selesai={selesai} onGo={go} />
         </div>
@@ -133,7 +134,7 @@ function CollectionStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => 
 
   return (
     <>
-      <InfoOutlet kodeToko={kodeToko} />
+      <InfoOutlet kodeToko={kodeToko} D={D} outstanding={d.totalOutstanding} />
       <HarusDitagih d={d} />
       {log.length > 0 && (
         <Card className="p-4">
@@ -175,7 +176,15 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
   const [stok, setStok] = useState<StokInternal[]>(() =>
     existing?.internal.length ? existing.internal : kandidat.filter((p) => p.pernahDibeli).map((p) => ({ kode_sku: p.kode_sku, display: 0, backroom: 0 })),
   );
-  const [komp, setKomp] = useState<StokKompetitor[]>(() => (existing?.kompetitor.length ? existing.kompetitor : [{ nama_produk: '', qty: 0 }]));
+  // Kompetitor: dari cek stok hari ini, atau otomatis dari cek stok terakhir toko (nama produk saja, qty 0).
+  const [komp, setKomp] = useState<StokKompetitor[]>(() => {
+    if (existing?.kompetitor.length) return existing.kompetitor;
+    const sebelum = aktivitas.stok
+      .filter((s) => s.kode_toko === kodeToko && s.tanggal < D && s.kompetitor.length)
+      .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || b.createdAt.localeCompare(a.createdAt))[0];
+    return sebelum ? sebelum.kompetitor.map((k) => ({ nama_produk: k.nama_produk, qty: 0, satuan_input: k.satuan_input ?? 'PCS' })) : [{ nama_produk: '', qty: 0, satuan_input: 'PCS' }];
+  });
+  const kompOtomatis = !existing?.kompetitor.length && komp.some((k) => k.nama_produk);
   const [err, setErr] = useState<string[]>([]);
   const terpilih = new Set(stok.map((s) => s.kode_sku));
 
@@ -201,7 +210,7 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
   if (!produk.length) {
     return (
       <>
-        <EmptyState title="Master Produk belum tersedia">Admin perlu upload data Produk.</EmptyState>
+        <EmptyState title="Master SKU belum tersedia">Admin perlu upload data Master SKU.</EmptyState>
         <ActionBar>
           <Button block size="lg" variant="secondary" onClick={lewati}>
             Lewati
@@ -233,7 +242,7 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
         <>
           <SkuPicker produk={kandidat} terpilih={terpilih} onPilih={(p) => tambah(p.kode_sku)} label="Cari SKU untuk cek stok" />
           {stok.length === 0 ? (
-            <EmptyState title="Belum ada SKU">Cari SKU berdasarkan kode SAP atau nama, lalu isi stok display & backroom.</EmptyState>
+            <EmptyState title="Belum ada SKU">Cari SKU berdasarkan kode atau nama, lalu isi stok display & backroom.</EmptyState>
           ) : (
             <>
               <p className="px-1 text-xs text-slate-500">{stok.length} SKU · SKU yang pernah dibeli toko otomatis ditambahkan.</p>
@@ -247,7 +256,7 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
                           <div className="min-w-0">
                             <div className="text-sm font-semibold leading-snug text-slate-900">{p?.nama_sku ?? s.kode_sku}</div>
                             <div className="text-xs text-slate-500">
-                              SAP {s.kode_sku}
+                              {s.kode_sku}
                               {p && ` · ${p.divisi}`}
                             </div>
                           </div>
@@ -260,11 +269,11 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
                             <Trash2 size={15} />
                           </button>
                         </div>
-                        <div className="mt-2.5 grid grid-cols-2 gap-2">
+                        <div className="mt-2.5 space-y-2">
                           {(['display', 'backroom'] as const).map((k) => (
-                            <div key={k} className="flex flex-col gap-1">
+                            <div key={k} className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                               <span className="text-xs font-medium text-slate-500">{k === 'display' ? 'Display (pajangan)' : 'Backroom (gudang)'}</span>
-                              <NumberStepper label={`${k} ${p?.nama_sku ?? s.kode_sku}`} value={s[k]} onChange={(v) => set(s.kode_sku, k, v)} />
+                              <QtyUnit label={`${k} ${p?.nama_sku ?? s.kode_sku}`} value={s[k]} isi={p?.isi_karton} satuan={p?.satuan} onChange={(v) => set(s.kode_sku, k, v)} />
                             </div>
                           ))}
                         </div>
@@ -278,27 +287,35 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
         </>
       ) : (
         <>
-          <p className="px-1 text-sm text-slate-600">Catat produk kompetitor yang ada di toko sebagai pembanding pangsa pasar.</p>
+          <p className="px-1 text-sm text-slate-600">
+            Catat produk kompetitor yang ada di toko sebagai pembanding pangsa pasar.
+            {kompOtomatis && <span className="mt-1 block text-xs text-brand-700">Daftar produk diisi otomatis dari cek stok sebelumnya. Isi qty terbaru.</span>}
+          </p>
           <ul className="space-y-2">
             {komp.map((k, i) => (
               <li key={i}>
-                <Card className="flex items-end gap-2 p-3">
-                  <label className="min-w-0 flex-1">
-                    <span className="mb-1 block text-xs font-medium text-slate-500">Nama produk</span>
-                    <Input value={k.nama_produk} placeholder="mis. Haribo Goldbears 100gr" onChange={(e) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, nama_produk: e.target.value } : y)))} />
-                  </label>
-                  <div className="flex flex-col gap-1">
-                    <span className="text-xs font-medium text-slate-500">Qty</span>
-                    <NumberStepper label={`qty kompetitor ${i + 1}`} value={k.qty} onChange={(v) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, qty: v } : y)))} />
+                <Card className="p-3">
+                  <div className="flex items-end gap-2">
+                    <label className="min-w-0 flex-1">
+                      <span className="mb-1 block text-xs font-medium text-slate-500">Nama produk</span>
+                      <Input value={k.nama_produk} placeholder="mis. Haribo Goldbears 100gr" onChange={(e) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, nama_produk: e.target.value } : y)))} />
+                    </label>
+                    <button type="button" aria-label="Hapus baris" onClick={() => setKomp((x) => x.filter((_, j) => j !== i))} className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
+                      <Trash2 size={16} />
+                    </button>
                   </div>
-                  <button type="button" aria-label="Hapus baris" onClick={() => setKomp((x) => x.filter((_, j) => j !== i))} className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-slate-500">Qty</span>
+                    <div className="flex items-center gap-1.5">
+                      <NumberStepper label={`qty kompetitor ${i + 1}`} value={k.qty} onChange={(v) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, qty: v } : y)))} />
+                      <UnitToggle label={`kompetitor ${i + 1}`} value={k.satuan_input ?? 'PCS'} onChange={(u) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, satuan_input: u } : y)))} />
+                    </div>
+                  </div>
                 </Card>
               </li>
             ))}
           </ul>
-          <Button variant="secondary" block onClick={() => setKomp((x) => [...x, { nama_produk: '', qty: 0 }])}>
+          <Button variant="secondary" block onClick={() => setKomp((x) => [...x, { nama_produk: '', qty: 0, satuan_input: 'PCS' }])}>
             <Plus size={16} /> Tambah produk kompetitor
           </Button>
         </>
@@ -325,7 +342,7 @@ export function InfoHistori({ h, p }: { h?: HistoriSku; p: ProdukLengkap }) {
   return (
     <p className="text-xs text-slate-500">
       {biasa && <span className="font-medium text-slate-700">{biasa}</span>}
-      {biasa && ' · '}Terakhir {h.qtyTerakhir} {p.satuan}, {formatTanggal(h.terakhir)}
+      {biasa && ' · '}Terakhir {formatQty(h.qtyTerakhir, p)}, {formatTanggal(h.terakhir)}
     </p>
   );
 }
@@ -394,7 +411,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
   if (!produk.length) {
     return (
       <>
-        <EmptyState title="Master Produk belum tersedia">Admin perlu upload data Produk & Order Rules.</EmptyState>
+        <EmptyState title="Master SKU belum tersedia">Admin perlu upload data Master SKU & Order Rules.</EmptyState>
         <ActionBar>
           <Button block size="lg" variant="secondary" onClick={lewati}>
             Lewati
@@ -444,7 +461,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
                       <div className="min-w-0">
                         <div className="text-sm font-semibold leading-snug text-slate-900">{p.nama_sku}</div>
                         <div className="text-xs text-slate-500">
-                          SAP {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
+                          {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                         </div>
                       </div>
                       <button type="button" aria-label={`Hapus ${p.nama_sku}`} onClick={() => hapus(p.kode_sku)} className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
@@ -452,15 +469,14 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
                       </button>
                     </div>
                     <div className="mt-1.5 space-y-1">
-                      <Badge tone="gray" dot={false}>
-                        Min. {p.moq} {p.satuan}
-                        {p.kelipatan > 1 ? ` · kelipatan ${p.kelipatan}` : ''}
+                      <Badge tone="brand" dot={false}>
+                        {labelMoq(p)}
                       </Badge>
                       <InfoHistori h={histMap.get(p.kode_sku)} p={p} />
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <NumberStepper label={`qty ${p.nama_sku}`} value={qty} step={p.kelipatan} onIncrementFromZero={p.moq} invalid={!!e} onChange={(n) => setQty(p.kode_sku, n)} />
-                      <span className="text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * p.harga)}</span>
+                    <div className="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                      <QtyUnit label={`qty ${p.nama_sku}`} value={qty} isi={p.isi_karton} satuan={p.satuan} moq={p.moq} invalid={!!e} onChange={(n) => setQty(p.kode_sku, n)} />
+                      <span className="ml-auto whitespace-nowrap pt-2 text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * p.harga)}</span>
                     </div>
                     {e && (
                       <p role="alert" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700">
@@ -485,7 +501,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
             }
           >
             <span className="inline-flex items-center gap-1.5">
-              <History size={15} /> Langganan toko
+              <History size={15} /> History pembelian
             </span>
           </SectionTitle>
           <Card className="divide-y divide-slate-100 px-3">
@@ -499,7 +515,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
                     <InfoHistori h={h} p={p} />
                   </div>
                   <button type="button" onClick={() => tambah(p, saran || undefined)} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-brand-50 px-2.5 text-xs font-semibold text-brand-700 hover:bg-brand-100" aria-label={`Tambah ${p.nama_sku}`}>
-                    <Plus size={14} /> {saran ? `${saran} ${p.satuan}` : 'Tambah'}
+                    <Plus size={14} /> {saran ? formatQtySingkat(saran, p) : 'Tambah'}
                   </button>
                 </div>
               );
@@ -508,7 +524,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
         </section>
       )}
 
-      {items.length === 0 && langganan.length === 0 && <EmptyState title="Belum ada item">Cari SKU berdasarkan kode SAP atau nama untuk mulai input PO.</EmptyState>}
+      {items.length === 0 && langganan.length === 0 && <EmptyState title="Belum ada item">Cari SKU berdasarkan kode atau nama untuk mulai input PO.</EmptyState>}
 
       <ActionBar>
         <div className="min-w-0 flex-1">
@@ -566,7 +582,7 @@ export function KonfirmasiPO({
             <div className="min-w-0">
               <div className="text-sm font-medium text-slate-900">{i.nama_sku}</div>
               <div className="text-xs tabular text-slate-500">
-                SAP {i.kode_sku} · {i.qty} {i.satuan} × {formatRupiah(i.harga)}
+                {i.kode_sku} · {formatQty(i.qty, { satuan: i.satuan, isi_karton: i.isi_karton ?? 1 })} × {formatRupiah(i.harga)}
               </div>
             </div>
             <div className="shrink-0 text-sm font-semibold tabular">{formatRupiah(i.subtotal)}</div>

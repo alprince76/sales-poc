@@ -147,7 +147,7 @@ export function MtRutePage() {
 
 export function MtTokoListPage() {
   const { kode, D } = useSalesSession();
-  const { data, produk, mslIdx, trxIdx } = useData();
+  const { data, produkMT: produk, mslIdx, trxIdx } = useData();
   const nav = useNavigate();
   const [q, setQ] = useState('');
   const rows = useMemo(() => {
@@ -180,7 +180,7 @@ export function MtTokoListPage() {
                     <div className="min-w-0 flex-1">
                       <div className="line-clamp-2 break-words font-semibold leading-snug text-slate-900">{m.nama_toko}</div>
                       <div className="truncate text-xs text-slate-500">
-                        {m.kode_toko} · {m.tipe_outlet ?? 'MT'}
+                        {m.kode_toko}{m.cust_group ? ` · ${m.cust_group}` : ''}
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {c.warning > 0 ? <Badge tone="red">{c.warning} SKU belum transaksi</Badge> : <Badge tone="green">MSL aman</Badge>}
@@ -206,7 +206,7 @@ export function MtTokoListPage() {
 
 export function MtOrderPage() {
   const { kode, D } = useSalesSession();
-  const { keranjang, produk, masterIdx, aktivitas } = useData();
+  const { keranjang, produkMT: produk, masterIdx, aktivitas } = useData();
   const nav = useNavigate();
   const harga = (sku: string) => produk.find((p) => p.kode_sku === sku)?.harga ?? 0;
   const draft = Object.entries(keranjang)

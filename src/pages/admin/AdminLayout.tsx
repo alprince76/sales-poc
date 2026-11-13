@@ -5,10 +5,11 @@ import { cn } from '../../components/ui';
 import { formatTimestamp, latestUpdate, useData } from '../../state';
 
 const NAV = [
-  { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/admin', label: 'Dashboard GT', icon: LayoutDashboard, end: true },
+  { to: '/admin/mt', label: 'Dashboard MT', icon: LayoutDashboard },
   { to: '/admin/rute', label: 'Rute Salesman', icon: RouteIcon },
   { to: '/admin/toko', label: 'Toko & Faktur', icon: Store },
-  { to: '/admin/penagihan', label: 'Penagihan', icon: HandCoins },
+  { to: '/admin/penagihan', label: 'Collection', icon: HandCoins },
   { to: '/admin/po', label: 'Purchase Order', icon: ShoppingCart },
   { to: '/admin/stok', label: 'Cek Stok', icon: Boxes },
   { to: '/admin/msl', label: 'MSL Compliance (MT)', icon: ListChecks },

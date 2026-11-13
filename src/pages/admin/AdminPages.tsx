@@ -1,4 +1,4 @@
-import { Check, Download, Minus, Search } from 'lucide-react';
+import { Check, Minus, Search } from 'lucide-react';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { BayarBadge, DetailTokoView } from '../../components/DetailTokoView';
 import { useKunjungan } from '../../components/KunjunganPanel';
@@ -6,7 +6,9 @@ import { DivisiChip, usePenagihanTerakhir } from '../../components/Penagihan';
 import { Badge, Button, Card, cn, DateNav, EmptyState, Input, Select, StatusBayarBadge, StatusTokoBadge, SummaryCard, ProgressBar } from '../../components/ui';
 import { daftarToko } from '../../lib/billing';
 import { getPenagihanTerakhir, LABEL_STATUS_BAYAR, ringkasPenagihan } from '../../lib/collection';
-import { toCSV, unduh } from '../../lib/csv';
+import { ekspor, type FormatEkspor } from '../../lib/csv';
+import { ExportMenu } from '../../components/ExportMenu';
+import { formatQty } from '../../lib/order';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import type { StatusBayar, StatusFaktur } from '../../lib/types';
@@ -73,10 +75,11 @@ export function TokoFakturPage() {
       .filter(Boolean)
       .sort((a, b) => b!.createdAt.localeCompare(a!.createdAt))[0];
 
-  const exportCSV = () =>
-    unduh(
-      `toko-faktur-${D}.csv`,
-      toCSV(
+  const exportCSV = (fmt: FormatEkspor) =>
+    ekspor(
+      fmt,
+      `toko-faktur-${D}`,
+      (
         rows.map((r) => ({
           kode_toko: r.kode_toko,
           nama_toko: r.nama_toko,
@@ -90,18 +93,16 @@ export function TokoFakturPage() {
           total_harus_ditagih: r.totalHarusDitagih,
           max_hari_overdue: r.maxHariOverdue,
           status: r.statusLabel,
-        })),
+        }))
       ),
     );
 
   return (
     <AdminPage
       title="Toko & Faktur"
-      description="Semesta toko beserta piutang (ROVI setelah pembayaran tercatat)."
+      description="Semesta toko beserta piutang (AR DI AWAL setelah pembayaran tercatat)."
       actions={
-        <Button variant="secondary" onClick={exportCSV}>
-          <Download size={16} /> Export CSV
-        </Button>
+        <ExportMenu onExport={exportCSV} />
       }
     >
       <div className="grid gap-4 xl:grid-cols-[1fr_400px]">
@@ -427,10 +428,11 @@ export function PenagihanPage() {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const r = ringkasPenagihan(rows);
 
-  const exportCSV = () =>
-    unduh(
-      `penagihan${tgl ? `-${tgl}` : ''}.csv`,
-      toCSV(
+  const exportCSV = (fmt: FormatEkspor) =>
+    ekspor(
+      fmt,
+      `collection${tgl ? `-${tgl}` : ''}`,
+      (
         rows.map((p) => ({
           waktu: p.createdAt,
           tanggal_kunjungan: p.tanggal,
@@ -443,18 +445,16 @@ export function PenagihanPage() {
           nominal: p.nominal,
           tanggal_janji: p.tanggal_janji ?? '',
           alasan: p.alasan ?? '',
-        })),
+        }))
       ),
     );
 
   return (
     <AdminPage
-      title="Penagihan"
-      description="Log update status penagihan dari salesman."
+      title="Collection"
+      description="Log update status penagihan (collection) dari salesman."
       actions={
-        <Button variant="secondary" onClick={exportCSV} disabled={!rows.length}>
-          <Download size={16} /> Export CSV
-        </Button>
+        <ExportMenu onExport={exportCSV} disabled={!rows.length} />
       }
     >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -534,10 +534,11 @@ export function POPage() {
   const perDivisi = semuaDivisi.map((d) => ({ d, nilai: rows.flatMap((p) => p.items).filter((i) => i.divisi === d).reduce((s, i) => s + i.subtotal, 0) }));
   const total = rows.reduce((s, p) => s + p.total, 0);
 
-  const exportCSV = () =>
-    unduh(
-      'purchase-order-erp.csv',
-      toCSV(
+  const exportCSV = (fmt: FormatEkspor) =>
+    ekspor(
+      fmt,
+      'purchase-order-erp',
+      (
         rows.flatMap((p) =>
           p.items.map((i) => ({
             no_po: p.no_po,
@@ -550,23 +551,23 @@ export function POPage() {
             divisi: i.divisi,
             qty: i.qty,
             satuan: i.satuan,
+            isi_karton: i.isi_karton ?? 1,
+            qty_car: (i.isi_karton ?? 1) > 1 ? Math.floor(i.qty / (i.isi_karton ?? 1)) : '',
             harga: i.harga,
             subtotal: i.subtotal,
             total_po: p.total,
             berpotensi_tidak_release: p.berpotensi_tidak_release ? 'YA' : 'TIDAK',
           })),
-        ),
+        )
       ),
     );
 
   return (
     <AdminPage
       title="Purchase Order"
-      description="PO yang dikirim salesman. Export CSV = payload untuk ERP pusat (simulasi)."
+      description="PO yang dikirim salesman. Export = payload untuk ERP pusat (simulasi), format CSV / TXT / Excel."
       actions={
-        <Button variant="secondary" onClick={exportCSV} disabled={!rows.length}>
-          <Download size={16} /> Export ke ERP (CSV)
-        </Button>
+        <ExportMenu onExport={exportCSV} disabled={!rows.length} label="Export ke ERP" />
       }
     >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -636,10 +637,10 @@ export function POPage() {
                       {p.items.map((i) => (
                         <li key={i.kode_sku} className="flex justify-between gap-3 py-1.5 text-xs">
                           <span>
-                            <span className="font-mono text-slate-500">SAP {i.kode_sku}</span> {i.nama_sku} <span className="text-slate-500">· {i.divisi}</span>
+                            <span className="font-mono text-slate-500">{i.kode_sku}</span> {i.nama_sku} <span className="text-slate-500">· {i.divisi}</span>
                           </span>
                           <span className="whitespace-nowrap tabular">
-                            {i.qty} {i.satuan} × {formatRupiah(i.harga)} = <span className="font-semibold">{formatRupiah(i.subtotal)}</span>
+                            {formatQty(i.qty, { satuan: i.satuan, isi_karton: i.isi_karton ?? 1 })} × {formatRupiah(i.harga)} = <span className="font-semibold">{formatRupiah(i.subtotal)}</span>
                           </span>
                         </li>
                       ))}
@@ -679,14 +680,15 @@ export function StokPage() {
     return [...m].map(([nama, x]) => ({ nama, qty: x.qty, toko: x.toko.size })).sort((a, b) => b.toko - a.toko || b.qty - a.qty);
   }, [rows]);
 
-  const exportCSV = () =>
-    unduh(
-      'cek-stok.csv',
-      toCSV([
+  const exportCSV = (fmt: FormatEkspor) =>
+    ekspor(
+      fmt,
+      'cek-stok',
+      ([
         ...rows.flatMap((s) =>
-          s.internal.map((i) => ({ tanggal: s.tanggal, kode_salesman: s.kode_salesman, kode_toko: s.kode_toko, jenis: 'INTERNAL', produk: `${i.kode_sku} ${sku.get(i.kode_sku)?.nama_sku ?? ''}`.trim(), display: i.display, backroom: i.backroom, qty: i.display + i.backroom })),
+          s.internal.map((i) => ({ tanggal: s.tanggal, kode_salesman: s.kode_salesman, kode_toko: s.kode_toko, jenis: 'INTERNAL', produk: `${i.kode_sku} ${sku.get(i.kode_sku)?.nama_sku ?? ''}`.trim(), display: i.display, backroom: i.backroom, qty: i.display + i.backroom, satuan: sku.get(i.kode_sku)?.satuan ?? 'Pcs' })),
         ),
-        ...rows.flatMap((s) => s.kompetitor.map((k) => ({ tanggal: s.tanggal, kode_salesman: s.kode_salesman, kode_toko: s.kode_toko, jenis: 'KOMPETITOR', produk: k.nama_produk, display: '', backroom: '', qty: k.qty }))),
+        ...rows.flatMap((s) => s.kompetitor.map((k) => ({ tanggal: s.tanggal, kode_salesman: s.kode_salesman, kode_toko: s.kode_toko, jenis: 'KOMPETITOR', produk: k.nama_produk, display: '', backroom: '', qty: k.qty, satuan: k.satuan_input ?? 'PCS' }))),
       ]),
     );
 
@@ -697,9 +699,7 @@ export function StokPage() {
       actions={
         <>
           <SalesSelect value={sales} onChange={setSales} />
-          <Button variant="secondary" onClick={exportCSV} disabled={!rows.length}>
-            <Download size={16} /> Export CSV
-          </Button>
+          <ExportMenu onExport={exportCSV} disabled={!rows.length} />
         </>
       }
     >

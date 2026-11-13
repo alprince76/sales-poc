@@ -10,13 +10,14 @@ import { formatTimestamp, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
 
 const JUDUL: Record<TipeData, { nama: string; desc: string }> = {
-  master: { nama: 'Master Outlet', desc: 'Toko, salesman, channel GT/MT, TUNAI/KREDIT, TOP, limit kredit, blokir' },
-  rovi: { nama: 'ROVI (AR)', desc: 'Faktur, divisi (DNE/CBN/MRS), sisa tagihan per toko' },
+  master: { nama: 'Master Outlet', desc: 'Toko, salesman, channel GT/MT, bill address 1–4, cust group, TUNAI/KREDIT, TOP, limit, RPP13, blokir' },
+  rovi: { nama: 'DI AWAL', desc: 'AR awal: faktur, divisi (DNE/CBN/MRS), sisa tagihan per toko' },
   pjp: { nama: 'PJP', desc: 'Jadwal kunjungan salesman per tanggal' },
-  produk: { nama: 'Master Produk', desc: 'Kode SAP, nama SKU, principal, kategori, price list, status aktif' },
-  rules: { nama: 'Order Rules', desc: 'Satuan, MOQ, kelipatan order per SKU' },
-  histori: { nama: 'Historical Sales', desc: 'Pembelian toko per SKU (suggested order & last order date MSL)' },
+  produk: { nama: 'Master SKU', desc: 'Kode SAP, nama (new material), principal, sub brand, harga dasar, status aktif' },
+  rules: { nama: 'Order Rules', desc: 'Satuan, MOQ per item, isi per karton (CAR) — khusus GT' },
+  histori: { nama: 'Historical Sales', desc: 'Pembelian toko per SKU (suggested order, last order, MSL)' },
   msl: { nama: 'MSL (Toko – SKU Listing)', desc: 'SKU yang wajib ada di toko MT (status_listed YES/NO)' },
+  price: { nama: 'Price List', desc: 'Harga per SKU per channel (GT/MT; kosong = semua). Menggantikan harga Master SKU' },
 };
 
 export function DataPage() {

@@ -33,12 +33,13 @@ beforeAll(() => {
     rules: parsed.rules.valid,
     histori: parsed.histori.valid,
     msl: parsed.msl.valid,
+    price: parsed.price.valid,
   };
 });
 
 describe('Regresi Dummy_ROVI_PJP.xlsx', () => {
   it('semua baris dummy valid', () => {
-    for (const k of ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl'] as const) {
+    for (const k of ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl', 'price'] as const) {
       expect(parsed[k].kolomHilang).toEqual([]);
       expect(parsed[k].error).toEqual([]);
     }
@@ -56,6 +57,12 @@ describe('Regresi Dummy_ROVI_PJP.xlsx', () => {
     expect(ds.rules).toHaveLength(40);
     expect(ds.histori.length).toBeGreaterThan(10_000);
     expect(ds.master.find((m) => m.kode_toko === 'TK00054')?.status_blokir).toBe(true);
+    // v5: customer master, isi karton, price list GT + MT.
+    expect(ds.master.every((m) => m.alamat_1 && m.rpp13 !== undefined)).toBe(true);
+    expect(ds.master.filter((m) => m.channel === 'MT').every((m) => m.cust_group)).toBe(true);
+    expect(ds.rules.every((r) => (r.isi_karton ?? 0) >= r.moq)).toBe(true);
+    expect(ds.price).toHaveLength(80);
+    expect(ds.produk.every((p) => p.new_material && p.sub_brand)).toBe(true);
   });
 
   it('Kunjungan Hari Ini SLS01 @ 2026-11-09 sama persis dengan Contoh_Output_Sales', () => {

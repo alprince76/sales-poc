@@ -1,48 +1,88 @@
 /**
- * Menu Purchase Order: histori, suggested order, validasi MOQ/kelipatan, limit kredit & blokir.
+ * Menu Purchase Order: histori, suggested order, validasi MOQ, satuan karton, price list, limit kredit & blokir.
  */
 import { addDays, diffDays, type ISODate } from './dates';
 import { normKode } from './billing';
 import { formatRupiah } from './format';
-import type { HistoriSales, ItemPO, MasterToko, OrderRule, Produk } from './types';
+import type { HistoriSales, ItemPO, MasterToko, OrderRule, PriceList, Produk } from './types';
 
 export interface ProdukLengkap extends Produk {
   satuan: string;
   moq: number;
-  kelipatan: number;
+  /** Isi per karton (CAR) dalam satuan dasar; 1 = tidak ada konversi karton. */
+  isi_karton: number;
 }
 
-/** Gabung Master Produk + Order Rules. SKU tanpa rule → MOQ 1, kelipatan 1, satuan "Pcs". */
-export function gabungProduk(produk: readonly Produk[], rules: readonly OrderRule[]): ProdukLengkap[] {
+export type ChannelHarga = 'GT' | 'MT';
+
+/**
+ * Gabung Master SKU + Order Rules + Price List.
+ * - SKU tanpa rule → MOQ 1, satuan "Pcs", isi karton 1.
+ * - Nama = kolom new_material bila ada.
+ * - Harga = Price List untuk channel tsb → Price List tanpa channel → harga Master SKU.
+ */
+export function gabungProduk(
+  produk: readonly Produk[],
+  rules: readonly OrderRule[],
+  price: readonly PriceList[] = [],
+  channel: ChannelHarga = 'GT',
+): ProdukLengkap[] {
   const r = new Map(rules.map((x) => [normKode(x.kode_sku), x]));
+  const hargaCh = new Map<string, number>();
+  const hargaUmum = new Map<string, number>();
+  for (const x of price) {
+    const k = normKode(x.kode_sku);
+    if (!x.channel) hargaUmum.set(k, x.harga);
+    else if (x.channel === channel) hargaCh.set(k, x.harga);
+  }
   return produk.map((p) => {
-    const rule = r.get(normKode(p.kode_sku));
+    const kode = normKode(p.kode_sku);
+    const rule = r.get(kode);
     return {
       ...p,
-      kode_sku: normKode(p.kode_sku),
+      kode_sku: kode,
+      nama_sku: p.new_material?.trim() || p.nama_sku,
+      harga: hargaCh.get(kode) ?? hargaUmum.get(kode) ?? p.harga,
       satuan: rule?.satuan ?? 'Pcs',
       moq: Math.max(1, rule?.moq ?? 1),
-      kelipatan: Math.max(1, rule?.kelipatan ?? 1),
+      isi_karton: Math.max(1, rule?.isi_karton ?? 1),
     };
   });
 }
 
-/** Pesan error item; null = valid. qty 0 = tidak dipesan (valid). */
-export function validasiQty(qty: number, p: Pick<ProdukLengkap, 'nama_sku' | 'moq' | 'kelipatan' | 'satuan'>): string | null {
+export interface OpsiQty {
+  /** MT tidak memakai ketentuan MOQ (file order rules hanya untuk GT). */
+  channel?: ChannelHarga;
+}
+
+/** Pesan error item; null = valid. qty 0 = tidak dipesan (valid). GT: cek MOQ saja (tanpa kelipatan). */
+export function validasiQty(qty: number, p: Pick<ProdukLengkap, 'nama_sku' | 'moq' | 'satuan'>, opsi: OpsiQty = {}): string | null {
   if (!Number.isInteger(qty) || qty < 0) return 'Qty harus bilangan bulat ≥ 0.';
-  if (qty === 0) return null;
+  if (qty === 0 || opsi.channel === 'MT') return null;
   if (qty < p.moq) return `Minimal pemesanan untuk SKU ${p.nama_sku} adalah ${p.moq} ${p.satuan}`;
-  if (p.kelipatan > 1 && qty % p.kelipatan !== 0)
-    return `Pemesanan SKU ${p.nama_sku} harus kelipatan ${p.kelipatan} ${p.satuan}`;
   return null;
 }
 
-/** Bulatkan ke atas agar memenuhi MOQ dan kelipatan. */
-export function bulatkanQty(qty: number, p: Pick<ProdukLengkap, 'moq' | 'kelipatan'>): number {
+/** Naikkan ke MOQ bila kurang. */
+export function bulatkanQty(qty: number, p: Pick<ProdukLengkap, 'moq'>): number {
   if (qty <= 0) return 0;
-  const q = Math.max(qty, p.moq);
-  return Math.ceil(q / p.kelipatan) * p.kelipatan;
+  return Math.max(qty, p.moq);
 }
+
+/** "2 CAR (48 Pcs)" bila qty pas kelipatan karton; selain itu "12 Pcs". */
+export function formatQty(qty: number, p: Pick<ProdukLengkap, 'satuan' | 'isi_karton'>): string {
+  if (p.isi_karton > 1 && qty >= p.isi_karton && qty % p.isi_karton === 0) return `${qty / p.isi_karton} CAR (${qty} ${p.satuan})`;
+  return `${qty} ${p.satuan}`;
+}
+
+/** Versi pendek untuk tombol: "2 CAR" / "12 Pcs". */
+export function formatQtySingkat(qty: number, p: Pick<ProdukLengkap, 'satuan' | 'isi_karton'>): string {
+  if (p.isi_karton > 1 && qty >= p.isi_karton && qty % p.isi_karton === 0) return `${qty / p.isi_karton} CAR`;
+  return `${qty} ${p.satuan}`;
+}
+
+/** Label MOQ untuk GT: "Min. 12 Pcs/item". */
+export const labelMoq = (p: Pick<ProdukLengkap, 'moq' | 'satuan'>) => `Min. ${p.moq} ${p.satuan}/item`;
 
 export interface HistoriSku {
   kode_sku: string;
@@ -87,9 +127,9 @@ export interface Saran {
 
 /**
  * Suggested order = rata-rata qty/bulan dalam 3 bulan terakhir (fallback 6 bulan),
- * dibulatkan ke atas ke MOQ & kelipatan.
+ * dibulatkan ke atas ke MOQ.
  */
-export function suggestedQty(h: HistoriSku | undefined, p: Pick<ProdukLengkap, 'moq' | 'kelipatan'>): Saran {
+export function suggestedQty(h: HistoriSku | undefined, p: Pick<ProdukLengkap, 'moq'>): Saran {
   if (!h) return { qty: 0, basis: null, rataBulanan: 0 };
   const tiga = h.perBulan.slice(3).reduce((a, b) => a + b, 0);
   if (tiga > 0) {
@@ -110,7 +150,7 @@ export function buatItems(keranjang: Record<string, number>, produk: readonly Pr
   for (const [kode, qty] of Object.entries(keranjang)) {
     const p = byKode.get(normKode(kode));
     if (!p || qty <= 0) continue;
-    items.push({ kode_sku: p.kode_sku, nama_sku: p.nama_sku, divisi: p.divisi, satuan: p.satuan, qty, harga: p.harga, subtotal: qty * p.harga });
+    items.push({ kode_sku: p.kode_sku, nama_sku: p.nama_sku, divisi: p.divisi, satuan: p.satuan, qty, harga: p.harga, subtotal: qty * p.harga, isi_karton: p.isi_karton });
   }
   return items.sort((a, b) => a.divisi.localeCompare(b.divisi) || a.nama_sku.localeCompare(b.nama_sku));
 }
@@ -179,7 +219,7 @@ export function validasiPO(
   for (const [kode, qty] of Object.entries(keranjang)) {
     const p = byKode.get(normKode(kode));
     if (!p) continue;
-    const e = validasiQty(qty, p);
+    const e = validasiQty(qty, p, { channel: opsi.channel });
     if (e) errorItem[p.kode_sku] = e;
   }
   const items = buatItems(keranjang, produk);

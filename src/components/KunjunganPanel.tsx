@@ -66,15 +66,15 @@ function KartuToko({ b, kunjungan, onClick }: { b: BarisKunjungan; kunjungan?: S
  */
 export function KunjunganPanel({ kodeSalesman, D, onPilih }: { kodeSalesman: string; D: ISODate; onPilih?: (kode: string) => void }) {
   const { aktivitas } = useData();
-  const [filter, setFilter] = useState<'semua' | 'tagih' | 'belum'>('semua');
-  const [urutan, setUrutan] = useState<UrutanMode>('prioritas');
+  // All = semesta PJP (urut nama), Route = urutan kunjungan.
+  const [sub, setSub] = useState<'all' | 'route'>('all');
   const [dipilih, setDipilih] = useState<string | null>(null);
-  const hasil = useKunjungan(kodeSalesman, D, urutan);
+  const hasil = useKunjungan(kodeSalesman, D, 'rute');
 
   const kodeList = hasil.baris.map((b) => b.kode_toko);
   const prog = progres(aktivitas.kunjungan, kodeSalesman, D, kodeList);
   const kj = (kode: string) => cariKunjungan(aktivitas.kunjungan, kodeSalesman, kode, D);
-  const tampil = hasil.baris.filter((b) => (filter === 'tagih' ? b.perluDitagih : filter === 'belum' ? !isSelesai(kj(b.kode_toko)) : true));
+  const tampil = sub === 'route' ? hasil.baris : [...hasil.baris].sort((a, b) => a.nama_toko.localeCompare(b.nama_toko) || a.kode_toko.localeCompare(b.kode_toko));
 
   if (!onPilih && dipilih) return <DetailTokoView kodeToko={dipilih} D={D} onBack={() => setDipilih(null)} />;
 
@@ -102,29 +102,17 @@ export function KunjunganPanel({ kodeSalesman, D, onPilih }: { kodeSalesman: str
             <ProgressBar value={prog.selesai} max={prog.total} tone="green" />
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Segmented
-              label="Filter"
-              value={filter}
-              onChange={setFilter}
-              options={[
-                { value: 'semua', label: `Semua` },
-                { value: 'tagih', label: `Ditagih (${hasil.jumlahPerluDitagih})` },
-                { value: 'belum', label: `Belum (${prog.total - prog.selesai})` },
-              ]}
-            />
-            <Segmented
-              label="Urutan"
-              value={urutan}
-              onChange={setUrutan}
-              options={[
-                { value: 'prioritas', label: 'Prioritas' },
-                { value: 'rute', label: 'Rute' },
-              ]}
-            />
-          </div>
+          <Segmented
+            label="Tampilan On Route"
+            value={sub}
+            onChange={setSub}
+            options={[
+              { value: 'all', label: `All (${hasil.jumlahKunjungan})` },
+              { value: 'route', label: 'Route' },
+            ]}
+          />
           {tampil.length === 0 ? (
-            <EmptyState icon={<Store size={20} />} title={filter === 'tagih' ? 'Tidak ada toko yang perlu ditagih' : 'Semua kunjungan selesai'} />
+            <EmptyState icon={<Store size={20} />} title="Tidak ada toko" />
           ) : (
             <ul className="space-y-2">
               {tampil.map((b) => (

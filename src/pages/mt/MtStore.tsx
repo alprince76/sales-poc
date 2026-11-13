@@ -1,14 +1,18 @@
 import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, PackagePlus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { InfoOutlet } from '../../components/DetailTokoView';
+import { InfoOutletMT } from '../../components/DetailTokoView';
 import { SkuPicker } from '../../components/SkuPicker';
-import { Badge, Button, Card, Chips, cn, EmptyState, NumberStepper, ProgressBar, SectionTitle, useToast } from '../../components/ui';
+import { Badge, Button, Card, Chips, cn, EmptyState, ProgressBar, SectionTitle, useToast } from '../../components/ui';
 import { normKode } from '../../lib/billing';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { compliance, labelWarning, ringkasPrincipal, teksTerakhirOrder, type SkuMSL } from '../../lib/msl';
-import { bulatkanQty, historiToko, suggestedQty, validasiPO, type ProdukLengkap } from '../../lib/order';
+import { formatQty, historiToko, suggestedQty, validasiPO, type ProdukLengkap } from '../../lib/order';
+import { QtyUnit } from '../../components/QtyUnit';
+
+/** MT tidak memakai MOQ: saran qty dihitung tanpa pembulatan MOQ. */
+const TANPA_MOQ = { moq: 1 };
 import { newId, useData } from '../../state';
 import { useSalesSession } from '../sales/session';
 import { ActionBar, InfoHistori, KonfirmasiPO } from '../sales/VisitPage';
@@ -35,7 +39,7 @@ export function MtRedirect({ step }: { step: Step }) {
 
 /** Keranjang MT toko ini + validasi PO (MT: tanpa limit kredit / blokir). */
 function usePOToko(kodeToko: string) {
-  const { keranjang, produk, masterIdx } = useData();
+  const { keranjang, produkMT: produk, masterIdx } = useData();
   const k = keranjang[kodeToko] ?? {};
   return validasiPO(k, produk, masterIdx.get(kodeToko), 0, { channel: 'MT' });
 }
@@ -136,7 +140,7 @@ function TotalBar({ kodeToko, label, onClick, disabled }: { kodeToko: string; la
 
 function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) {
   const { D } = useSalesSession();
-  const { produk, data, keranjang, setQtyKeranjang } = useData();
+  const { produkMT: produk, data, keranjang, setQtyKeranjang } = useData();
   const v = usePOToko(kodeToko);
   const k = keranjang[kodeToko] ?? {};
   const aktifProduk = useMemo(() => produk.filter((p) => p.status_aktif !== false), [produk]);
@@ -148,16 +152,16 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
 
   const tambah = (p: ProdukLengkap) => {
     if (k[p.kode_sku]) return;
-    setQtyKeranjang(kodeToko, p.kode_sku, suggestedQty(histMap.get(p.kode_sku), p).qty || bulatkanQty(p.moq, p));
+    setQtyKeranjang(kodeToko, p.kode_sku, suggestedQty(histMap.get(p.kode_sku), TANPA_MOQ).qty || 1);
   };
 
   return (
     <>
-      <InfoOutlet kodeToko={kodeToko} tanpaLimit />
+      <InfoOutletMT kodeToko={kodeToko} />
       <SkuPicker produk={aktifProduk} terpilih={new Set(Object.keys(k))} onPilih={tambah} label="Cari SKU untuk PO" />
       {items.length === 0 ? (
         <EmptyState icon={<ShoppingCart size={20} />} title="Belum ada item PO">
-          Cari SKU berdasarkan kode SAP atau nama. Setelah itu, cek SKU MSL yang belum ditransaksikan di langkah berikutnya.
+          Cari SKU berdasarkan kode atau nama. Setelah itu, cek SKU MSL yang belum ditransaksikan di langkah berikutnya.
         </EmptyState>
       ) : (
         <section>
@@ -173,23 +177,19 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
                       <div className="min-w-0">
                         <div className="text-sm font-semibold leading-snug text-slate-900">{p.nama_sku}</div>
                         <div className="text-xs text-slate-500">
-                          SAP {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
+                          {p.kode_sku} · {p.sub_brand ?? p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                         </div>
                       </div>
                       <button type="button" aria-label={`Hapus ${p.nama_sku}`} onClick={() => setQtyKeranjang(kodeToko, p.kode_sku, 0)} className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
                         <Trash2 size={15} />
                       </button>
                     </div>
-                    <div className="mt-1.5 space-y-1">
-                      <Badge tone="gray" dot={false}>
-                        Min. {p.moq} {p.satuan}
-                        {p.kelipatan > 1 ? ` · kelipatan ${p.kelipatan}` : ''}
-                      </Badge>
+                    <div className="mt-1.5">
                       <InfoHistori h={histMap.get(p.kode_sku)} p={p} />
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <NumberStepper label={`qty ${p.nama_sku}`} value={qty} step={p.kelipatan} onIncrementFromZero={p.moq} invalid={!!e} onChange={(n) => setQtyKeranjang(kodeToko, p.kode_sku, Math.max(n, 0) || 0)} />
-                      <span className="text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * p.harga)}</span>
+                    <div className="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                      <QtyUnit label={`qty ${p.nama_sku}`} value={qty} isi={p.isi_karton} satuan={p.satuan} moq={1} invalid={!!e} onChange={(n) => setQtyKeranjang(kodeToko, p.kode_sku, Math.max(n, 0) || 0)} />
+                      <span className="ml-auto whitespace-nowrap pt-2 text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * p.harga)}</span>
                     </div>
                     {e && (
                       <p role="alert" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700">
@@ -331,7 +331,7 @@ function SummaryStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
   const teratasi = list.filter((s) => s.diPO && s.warningAwal).length;
   const [konfirmasi, setKonfirmasi] = useState(false);
 
-  const tambahCepat = (s: SkuMSL) => setQtyKeranjang(kodeToko, s.kode_sku, bulatkanQty(s.moq, s));
+  const tambahCepat = (s: SkuMSL) => setQtyKeranjang(kodeToko, s.kode_sku, 1);
 
   const kirim = () => {
     const po = submitPO({ id: newId(), kode_toko: kodeToko, kode_salesman: sales, tanggal: D, items: v.items, total: v.total, status: 'TERKIRIM', createdAt: new Date().toISOString() });
@@ -399,7 +399,7 @@ function SummaryStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900">{i.nama_sku}</div>
                   <div className="text-xs tabular text-slate-500">
-                    SAP {i.kode_sku} · {i.qty} {i.satuan} × {formatRupiah(i.harga)}
+                    {i.kode_sku} · {formatQty(i.qty, { satuan: i.satuan, isi_karton: i.isi_karton ?? 1 })} × {formatRupiah(i.harga)}
                   </div>
                   {v.errorItem[i.kode_sku] && <div className="text-xs font-medium text-red-600">{v.errorItem[i.kode_sku]}</div>}
                 </div>

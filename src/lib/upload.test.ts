@@ -20,6 +20,7 @@ describe('US-A2 Ringkasan & warning upload', () => {
     rules: [],
     histori: [],
     msl: [],
+    price: [],
   };
 
   it('Kode toko di PJP tidak ada di ROVI → upload tetap berhasil + warning "1 toko tidak ditemukan di data ROVI"', () => {

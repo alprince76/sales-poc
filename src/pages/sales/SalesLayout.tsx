@@ -1,4 +1,4 @@
-import { Activity, ReceiptText, Route as RouteIcon, Store } from 'lucide-react';
+import { Activity, ReceiptText, Route as RouteIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { cn, DateNav } from '../../components/ui';
@@ -10,7 +10,6 @@ export type NavItem = { to: string; label: string; icon: typeof RouteIcon; end?:
 const NAV: NavItem[] = [
   { to: '/sales', label: 'Rute', icon: RouteIcon, end: true },
   { to: '/sales/tagihan', label: 'Tagihan', icon: ReceiptText },
-  { to: '/sales/toko', label: 'Toko', icon: Store },
   { to: '/sales/aktivitas', label: 'Aktivitas', icon: Activity },
 ];
 

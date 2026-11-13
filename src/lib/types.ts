@@ -9,7 +9,16 @@ export interface MasterToko {
   nama_toko: string;
   area?: string;
   alamat?: string;
+  /** Bill address 1–4 (customer master); digabung untuk tampilan. */
+  alamat_1?: string;
+  alamat_2?: string;
+  alamat_3?: string;
+  alamat_4?: string;
   tipe_outlet?: string;
+  /** Customer group MT, mis. "BORMA DAKOTA GROUP". */
+  cust_group?: string;
+  /** Average sales (kolom RPP13), rupiah. */
+  rpp13?: number;
   /** Rupiah; kosong = tanpa limit. */
   limit_kredit?: number;
   status_blokir?: boolean;
@@ -51,6 +60,10 @@ export interface Produk {
   nama_sku: string;
   divisi: string;
   kategori?: string;
+  /** Sub brand, mis. "Perlengkapan Bayi". */
+  sub_brand?: string;
+  /** Nama lengkap SKU (kolom "new material"); bila ada dipakai sebagai nama. */
+  new_material?: string;
   /** Price list terakhir, rupiah per satuan. */
   harga: number;
   /** "GT" = terdaftar di channel General Trade. */
@@ -71,7 +84,17 @@ export interface OrderRule {
   kode_sku: string;
   satuan: string;
   moq: number;
+  /** Tidak lagi dipakai untuk validasi (MOQ ≠ kelipatan); tetap diterima saat upload. */
   kelipatan?: number;
+  /** Isi per karton (CAR) dalam satuan dasar. */
+  isi_karton?: number;
+}
+
+/** Price List: harga per SKU, opsional per channel (kosong = semua channel). */
+export interface PriceList {
+  kode_sku: string;
+  harga: number;
+  channel?: string;
 }
 
 /** Historical Sales: satu baris = satu pembelian SKU oleh toko. */
@@ -90,6 +113,7 @@ export interface DataSet {
   rules: OrderRule[];
   histori: HistoriSales[];
   msl: MslListing[];
+  price: PriceList[];
 }
 
 export type StatusFaktur = 'OVERDUE' | 'JATUH_TEMPO_HARI_INI' | 'BELUM_JATUH_TEMPO';
@@ -121,9 +145,13 @@ export interface StokInternal {
   backroom: number;
 }
 
+export type SatuanInput = 'CAR' | 'PCS';
+
 export interface StokKompetitor {
   nama_produk: string;
   qty: number;
+  /** Label satuan input (tanpa konversi). */
+  satuan_input?: SatuanInput;
 }
 
 export interface CekStok {
@@ -141,9 +169,11 @@ export interface ItemPO {
   nama_sku: string;
   divisi: string;
   satuan: string;
+  /** Qty dalam satuan dasar. */
   qty: number;
   harga: number;
   subtotal: number;
+  isi_karton?: number;
 }
 
 export interface PurchaseOrder {

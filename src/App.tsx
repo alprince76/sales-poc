@@ -2,10 +2,10 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Button } from './components/ui';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { PenagihanPage, POPage, RuteAdminPage, StokPage, TokoFakturPage } from './pages/admin/AdminPages';
-import { DashboardPage } from './pages/admin/DashboardPage';
+import { DashboardGTPage, DashboardMTPage } from './pages/admin/DashboardPage';
 import { DataPage } from './pages/admin/DataPage';
 import { SalesLayout } from './pages/sales/SalesLayout';
-import { AktivitasPage, RutePage, TagihanPage, TokoPage } from './pages/sales/SalesPages';
+import { AktivitasPage, RutePage, TagihanPage } from './pages/sales/SalesPages';
 import { SalesSessionProvider } from './pages/sales/session';
 import { VisitPage } from './pages/sales/VisitPage';
 import { useData } from './state';
@@ -69,7 +69,7 @@ export function App() {
               <Route element={<SalesLayout />}>
                 <Route index element={<RutePage />} />
                 <Route path="tagihan" element={<TagihanPage />} />
-                <Route path="toko" element={<TokoPage />} />
+                <Route path="toko" element={<Navigate to="/sales?tab=nonroute" replace />} />
                 <Route path="aktivitas" element={<AktivitasPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/sales" replace />} />
@@ -78,7 +78,8 @@ export function App() {
         }
       />
       <Route path="/admin" element={<AdminLayout />}>
-        <Route index element={<DashboardPage />} />
+        <Route index element={<DashboardGTPage />} />
+        <Route path="mt" element={<DashboardMTPage />} />
         <Route path="rute" element={<RuteAdminPage />} />
         <Route path="toko" element={<TokoFakturPage />} />
         <Route path="penagihan" element={<PenagihanPage />} />

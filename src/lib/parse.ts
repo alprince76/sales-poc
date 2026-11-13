@@ -5,10 +5,10 @@
 import * as XLSX from 'xlsx';
 import { normalizeDate } from './dates';
 import { normKode } from './billing';
-import type { DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, MslListing, OrderRule, Produk } from './types';
+import type { DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, MslListing, OrderRule, PriceList, Produk } from './types';
 
 export type TipeData = keyof DataSet;
-export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl'];
+export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl', 'price'];
 
 type JenisKolom = 'string' | 'date' | 'int' | 'bool';
 interface Kolom {
@@ -28,7 +28,13 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'nama_toko', jenis: 'string', wajib: true },
       { nama: 'area', jenis: 'string', wajib: false },
       { nama: 'alamat', jenis: 'string', wajib: false },
+      { nama: 'alamat_1', jenis: 'string', wajib: false },
+      { nama: 'alamat_2', jenis: 'string', wajib: false },
+      { nama: 'alamat_3', jenis: 'string', wajib: false },
+      { nama: 'alamat_4', jenis: 'string', wajib: false },
       { nama: 'tipe_outlet', jenis: 'string', wajib: false },
+      { nama: 'cust_group', jenis: 'string', wajib: false },
+      { nama: 'rpp13', jenis: 'int', wajib: false },
       { nama: 'limit_kredit', jenis: 'int', wajib: false },
       { nama: 'status_blokir', jenis: 'bool', wajib: false },
       { nama: 'channel', jenis: 'string', wajib: false },
@@ -68,6 +74,8 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'nama_sku', jenis: 'string', wajib: true },
       { nama: 'divisi', jenis: 'string', wajib: true },
       { nama: 'kategori', jenis: 'string', wajib: false },
+      { nama: 'sub_brand', jenis: 'string', wajib: false },
+      { nama: 'new_material', jenis: 'string', wajib: false },
       { nama: 'harga', jenis: 'int', wajib: true },
       { nama: 'channel', jenis: 'string', wajib: false },
       { nama: 'status_aktif', jenis: 'bool', wajib: false },
@@ -80,6 +88,7 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'satuan', jenis: 'string', wajib: true },
       { nama: 'moq', jenis: 'int', wajib: true },
       { nama: 'kelipatan', jenis: 'int', wajib: false },
+      { nama: 'isi_karton', jenis: 'int', wajib: false },
     ],
   },
   histori: {
@@ -97,6 +106,14 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'kode_toko', jenis: 'string', wajib: true },
       { nama: 'kode_sku', jenis: 'string', wajib: true },
       { nama: 'status_listed', jenis: 'bool', wajib: true },
+    ],
+  },
+  price: {
+    sheet: 'Price_List',
+    kolom: [
+      { nama: 'kode_sku', jenis: 'string', wajib: true },
+      { nama: 'harga', jenis: 'int', wajib: true },
+      { nama: 'channel', jenis: 'string', wajib: false },
     ],
   },
 };
@@ -206,6 +223,11 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
     if ('kode_toko' in obj) obj.kode_toko = normKode(obj.kode_toko as string);
     if ('kode_salesman' in obj) obj.kode_salesman = normKode(obj.kode_salesman as string);
     if ('kode_sku' in obj) obj.kode_sku = normKode(obj.kode_sku as string);
+    if (tipe === 'price' && 'channel' in obj) {
+      const ch = String(obj.channel).trim().toUpperCase();
+      if (ch !== 'GT' && ch !== 'MT') alasan.push(`channel harus GT/MT/kosong ("${obj.channel}")`);
+      else obj.channel = ch;
+    }
     if (tipe === 'master' && 'channel' in obj) obj.channel = String(obj.channel).trim().toUpperCase();
     if (tipe === 'master' && 'tipe_bayar' in obj) {
       const tb = String(obj.tipe_bayar).trim().toUpperCase();
@@ -216,6 +238,13 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
     if (tipe === 'rules' && !alasan.length && (obj.moq as number) < 1) alasan.push('moq minimal 1');
     if (tipe === 'rules' && !alasan.length && obj.kelipatan !== undefined && (obj.kelipatan as number) < 1)
       alasan.push('kelipatan minimal 1');
+    if (tipe === 'rules' && !alasan.length && obj.isi_karton !== undefined && (obj.isi_karton as number) < 1)
+      alasan.push('isi_karton minimal 1');
+    if (tipe === 'price' && !alasan.length) {
+      const key = `${obj.kode_sku}|${obj.channel ?? ''}`;
+      if (seenFaktur.has(key)) alasan.push(`kode_sku + channel duplikat (${obj.kode_sku})`);
+      seenFaktur.add(key);
+    }
     if ((tipe === 'produk' || tipe === 'rules') && !alasan.length) {
       const sku = obj.kode_sku as string;
       if (seenFaktur.has(sku)) alasan.push(`kode_sku duplikat (${sku})`);
@@ -241,6 +270,7 @@ export function parseSheet(tipe: 'produk', ws: XLSX.WorkSheet): HasilParse<Produ
 export function parseSheet(tipe: 'rules', ws: XLSX.WorkSheet): HasilParse<OrderRule>;
 export function parseSheet(tipe: 'histori', ws: XLSX.WorkSheet): HasilParse<HistoriSales>;
 export function parseSheet(tipe: 'msl', ws: XLSX.WorkSheet): HasilParse<MslListing>;
+export function parseSheet(tipe: 'price', ws: XLSX.WorkSheet): HasilParse<PriceList>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unknown>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unknown> {
   const { header, rows } = sheetToRows(ws);
@@ -290,5 +320,6 @@ export function bacaDataSet(wb: XLSX.WorkBook) {
     rules: opt('rules', (ws) => parseSheet('rules', ws)),
     histori: opt('histori', (ws) => parseSheet('histori', ws)),
     msl: opt('msl', (ws) => parseSheet('msl', ws)),
+    price: opt('price', (ws) => parseSheet('price', ws)),
   };
 }

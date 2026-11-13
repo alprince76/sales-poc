@@ -1,15 +1,16 @@
-import { AlertTriangle, Download } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Button, Card, cn, DateNav, EmptyState, ProgressBar, Select, SummaryCard } from '../../components/ui';
+import { Card, cn, DateNav, EmptyState, ProgressBar, Select, SummaryCard } from '../../components/ui';
 import { normKode } from '../../lib/billing';
-import { toCSV, unduh } from '../../lib/csv';
+import { ekspor, type FormatEkspor } from '../../lib/csv';
+import { ExportMenu } from '../../components/ExportMenu';
 import { formatRupiah } from '../../lib/format';
 import { compliance, daftarSkuMSL, labelWarning, teksTerakhirOrder } from '../../lib/msl';
 import { DEFAULT_DATE, useData } from '../../state';
 import { AdminPage, Table } from './AdminLayout';
 
 export function MslPage() {
-  const { data, produk, mslIdx, trxIdx, salesmen } = useData();
+  const { data, produkMT: produk, mslIdx, trxIdx, salesmen } = useData();
   const [D, setD] = useState(DEFAULT_DATE);
   const [sales, setSales] = useState('');
   const [divisi, setDivisi] = useState('');
@@ -32,10 +33,11 @@ export function MslPage() {
   const pct = tot.listed ? Math.round(((tot.listed - tot.warning) / tot.listed) * 100) : 100;
   const detail = rows.find((r) => r.m.kode_toko === dipilih);
 
-  const exportCSV = () =>
-    unduh(
-      `msl-compliance-${D}.csv`,
-      toCSV(
+  const exportCSV = (fmt: FormatEkspor) =>
+    ekspor(
+      fmt,
+      `msl-compliance-${D}`,
+      (
         rows.flatMap((r) =>
           r.list
             .filter((s) => s.listed)
@@ -51,7 +53,7 @@ export function MslPage() {
               hari_sejak_order: s.hariSejak ?? '',
               warning: labelWarning(s.warning),
             })),
-        ),
+        )
       ),
     );
 
@@ -64,9 +66,7 @@ export function MslPage() {
           <div className="w-64">
             <DateNav value={D} onChange={setD} />
           </div>
-          <Button variant="secondary" onClick={exportCSV} disabled={!rows.length}>
-            <Download size={16} /> Export CSV
-          </Button>
+          <ExportMenu onExport={exportCSV} disabled={!rows.length} />
         </>
       }
     >

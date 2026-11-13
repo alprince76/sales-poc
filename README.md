@@ -41,19 +41,21 @@ npm run build     # typecheck + build produksi ke dist/
 ```
 
 ## Alur demo (±2 menit)
-1. `/sales`: SR **Arli (SLS01)**, Senin 9 Nov: 77 kunjungan · 25 perlu ditagih · Rp 121.160.000.
+1. `/sales`: SR **Arli (SLS01)**, Senin 9 Nov. Menu **On Route** (sub *All* urut nama / *Route* urut kunjungan): 77 kunjungan · 25 perlu ditagih · Rp 121.160.000.
+   **Non Route** = semua toko coverage SR (taking order di luar jadwal / by phone). **Inkasso** = toko coverage dengan tagihan JT/overdue → *Belum ditagih* / *Tertagih* (lunas).
 2. Buka **TEH LENI /PASEH**, lalu ketuk faktur `INV/2026/09/00188` dan pilih **Paid**. Harus Ditagih turun ke Rp 7.300.000.
    Coba juga *Partially Paid* (nominal), *Janji Bayar* (tanggal), dan *Bad Debt* (alasan + "Lainnya").
-3. **Cek Stok**: isi Display/Backroom produk Tigaraksa, lalu tab Kompetitor untuk nama + qty manual.
-4. **PO**: filter divisi, lihat riwayat 6 bulan + saran qty, isi qty di bawah MOQ dan alert muncul
-   ("Minimal pemesanan untuk SKU Yupi Milly Moos w/ Milk Hanging 24x108gr adalah 3 Pcs"). Submit, lalu **Kirim ke ERP**.
+3. **Cek Stok**: isi Display/Backroom (CAR/PCS), lalu tab Kompetitor. Daftar kompetitor otomatis muncul dari cek stok sebelumnya.
+4. **PO**: cari SKU (kode/nama), qty dalam **CAR atau PCS** (1 CAR = isi karton), MOQ "Min. 3 Pcs/item" (tanpa kelipatan),
+   **History pembelian** untuk tambah cepat. Submit → **Submit PO · Rp …**.
 5. **Selesai Kunjungan**: rute menunjukkan 1/77 selesai.
-6. `/admin`: dashboard menampilkan terkumpul, nilai PO, dan progres per SR. Menu *Purchase Order* bisa diexport sebagai payload ERP (CSV).
+6. `/admin` = **Dashboard GT** (TOTAL AR, TOTAL DI AKHIR, BELUM TERTAGIH, JB/BD, AR OUTSTANDING); `/admin/mt` = **Dashboard MT** (toko order, MSL compliance, SKU belum transaksi).
+   Semua tabel admin bisa diexport **CSV / TXT / Excel**.
 7. Toko diblokir untuk demo: `TK00054 BINTANG STORE`, `TK00200 SRC EKA`. Limit tipis: `TK00090`, `TK00143`.
 
 ## Alur demo MT (±1 menit)
 1. `/mt`: SR **Rina (SLSM01)**, Senin 9 Nov: kartu toko menampilkan "Ada N SKU Belum Transaksi".
-2. Buka toko → **1. Input PO**: cari SKU by **kode SAP atau nama** → atur qty (validasi MOQ/kelipatan, tanpa limit kredit).
+2. Buka toko (info: Cust group + alamat) → **1. Input PO**: cari SKU by **kode atau nama** → atur qty CAR/PCS (MT tanpa MOQ & tanpa limit kredit; harga dari Price List MT).
 3. **2. Cek MSL**: pilih **principal**; SKU listed yang belum transaksi > 30 hari dipin teratas. SKU yang sudah ada di PO
    berubah jadi "Masuk PO · warning teratasi". Tekan **+ PO** untuk menambah SKU warning.
 4. **3. Summary**: MSL aktif sebelum → sesudah PO, SKU yang masih belum transaksi, rincian PO → **Submit PO · Rp …**.
@@ -65,6 +67,9 @@ npm run build     # typecheck + build produksi ke dist/
 - Toko diblokir (GT): banner **"PO berpotensi tidak release — Selesaikan tagihan atau hubungi admin"**; PO tetap bisa disubmit dan ditandai di admin.
 - Pilih SKU (Cek Stok, PO GT/MT): combobox cari **kode SAP atau nama**. Info histori: "Biasa order ±N Pcs/bulan · Terakhir …".
 - Tombol konfirmasi: **"Submit PO · Rp …"**.
+- Info toko GT (customer master): alamat (bill address 1–4 digabung), credit limit, TOP, average sales (RPP13), last order value/date, outstanding. Tipe outlet tidak ditampilkan.
+- Kode SKU tampil tanpa awalan "SAP"; nama SKU = kolom *new material*; MT menampilkan *sub brand*.
+- Belum dikerjakan (menunggu detail): Retur (Stok → Retur → Coll → PO), MSL untuk GT, status PO SDR69.
 
 ## Data (Admin → Data & Upload)
 
@@ -73,18 +78,19 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
 
 | Data | Sheet | Kolom wajib | Opsional |
 |---|---|---|---|
-| Master Outlet | `Master_Toko` | kode_salesman, nama_salesman, kode_toko, nama_toko | salesman_bw, area, alamat, tipe_outlet, limit_kredit, status_blokir (YA/TIDAK), channel (GT/MT), tipe_bayar (TUNAI/KREDIT), top_hari |
-| ROVI (AR) | `ROVI` | kode_toko, nama_toko, no_faktur, tanggal_faktur, tanggal_jatuh_tempo, nilai_faktur, sisa_tagihan | divisi (DNE/CBN/MRS/…) |
+| Master Outlet | `Master_Toko` | kode_salesman, nama_salesman, kode_toko, nama_toko | salesman_bw, area, alamat, alamat_1..alamat_4 (bill address), tipe_outlet, cust_group (MT), rpp13 (average sales), limit_kredit, status_blokir (YA/TIDAK), channel (GT/MT), tipe_bayar (TUNAI/KREDIT), top_hari |
+| DI AWAL (AR) | `ROVI` | kode_toko, nama_toko, no_faktur, tanggal_faktur, tanggal_jatuh_tempo, nilai_faktur, sisa_tagihan | divisi (DNE/CBN/MRS/…) |
 | PJP | `PJP` | kode_salesman, nama_salesman, tanggal_kunjungan, kode_toko | hari, nama_toko, urutan |
-| Master Produk | `Produk` | kode_sku (kode SAP), nama_sku, divisi (= principal), harga | kategori, channel (GT/MT), status_aktif (YA/TIDAK) |
-| Order Rules | `Order_Rules` | kode_sku, satuan, moq | kelipatan |
+| Master SKU | `Produk` | kode_sku (kode SAP), nama_sku, divisi (= principal), harga | new_material (nama lengkap), sub_brand, kategori, channel (GT/MT), status_aktif (YA/TIDAK) |
+| Order Rules (GT) | `Order_Rules` | kode_sku, satuan, moq (per item) | isi_karton (Pcs per CAR), kelipatan (diabaikan) |
+| Price List | `Price_List` | kode_sku, harga | channel (GT/MT; kosong = semua) — menggantikan harga Master SKU |
 | Historical Sales | `Histori_Sales` | kode_toko, kode_sku, tanggal_po, qty | |
 | MSL (Toko – SKU Listing) | `MSL` | kode_toko, kode_sku, status_listed (YES/NO) | |
 
 - Tanggal: tanggal Excel, `YYYY-MM-DD`, atau `D/M/YYYY`. Uang: bilangan bulat rupiah.
 - Kolom wajib hilang → file ditolak. Baris error ditampilkan dengan nomor baris Excel → **Simpan baris valid saja** / **Batal**.
 - Data dummy tidak disimpan di `localStorage` (dimuat ulang dari file). Data hasil upload disimpan, dan muncul peringatan bila melebihi kuota browser.
-- Dummy dibuat oleh `node scripts/gen-dummy.mjs` dari `docs/original/Dummy_ROVI_PJP.xlsx`: data GT asli tidak diubah; ditambah 2 SR MT (SLSM01 Rina, SLSM02 Dodi), 60 outlet MT, PJP MT, sheet MSL, 3 SKU non-aktif, kode SAP 8 digit, divisi faktur, dan TUNAI/KREDIT + TOP.
+- Dummy dibuat oleh `node scripts/gen-dummy.mjs` dari `docs/original/Dummy_ROVI_PJP.xlsx`: data GT asli tidak diubah; ditambah 2 SR MT (SLSM01 Rina, SLSM02 Dodi), 60 outlet MT, PJP MT, sheet MSL, 3 SKU non-aktif, kode SAP 8 digit, divisi faktur, TUNAI/KREDIT + TOP, bill address 1–4, RPP13, cust group, new material, sub brand, isi karton, dan Price List (MT = GT +5%).
 
 ## Aturan bisnis
 
@@ -94,7 +100,9 @@ Semua logika berupa pure function di `src/lib/` dan diuji:
 |---|---|
 | [billing.ts](src/lib/billing.ts) | Status faktur (Overdue / JT hari ini / Belum JT), Perlu Ditagih, total harus ditagih, urutan prioritas, join `kode_toko` (trim + uppercase, tidak pakai nama) |
 | [collection.ts](src/lib/collection.ts) | Validasi Paid / Partially Paid (0 < nominal < sisa) / Janji Bayar (tanggal ≥ kunjungan) / Bad Debt (alasan wajib). **Paid & Partial mengurangi sisa tagihan**; Janji & Bad Debt hanya dicatat |
-| [order.ts](src/lib/order.ts) | Validasi MOQ & kelipatan, suggested qty = rata-rata/bulan 3 bulan terakhir (fallback 6 bulan) dibulatkan ke MOQ/kelipatan, toko diblokir / melebihi limit kredit → PO ditolak |
+| [order.ts](src/lib/order.ts) | Validasi MOQ per item (GT saja; **bukan** kelipatan), qty disimpan dalam Pcs (CAR × isi karton), harga = Price List channel → Price List umum → Master SKU, suggested qty = rata-rata/bulan 3 bulan terakhir (fallback 6 bulan). Toko diblokir → PO boleh + peringatan; KREDIT melebihi limit → ditolak |
+| [outlet.ts](src/lib/outlet.ts) | Alamat lengkap (bill address 1–4), last order value/date (histori + PO aplikasi) |
+| [inkasso.ts](src/lib/inkasso.ts) | Daftar Inkasso: toko coverage SR dengan tagihan JT/overdue (AR awal); Tertagih = ada log di D & lunas, sisanya Belum ditagih |
 | [stock.ts](src/lib/stock.ts) | Daftar SKU = pernah dibeli toko ∪ channel GT; qty bulat ≥ 0 |
 | [visit.ts](src/lib/visit.ts) | Status langkah kunjungan (selesai / dilewati), progres rute |
 | [msl.ts](src/lib/msl.ts) | MT: SKU tampil = listed ∪ pernah dibeli, hanya aktif. Order terakhir = maks(histori, PO aplikasi) ≤ D. Warning bila listed & (> 30 hari **atau** belum pernah order); tepat 30 hari = aman. PO hari ini langsung mereset warning. Warning dipin teratas; counter per divisi & toko |
