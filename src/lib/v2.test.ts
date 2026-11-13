@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { hitungKunjungan, ringkasTagihan } from './billing';
 import { applyPenagihan, buatPenagihan, penagihanTerakhir, ringkasPenagihan, validasiPenagihan } from './collection';
 import {
-  bulatkanQty,
+  catatanMoq,
   cekKredit,
   gabungProduk,
   historiToko,
@@ -124,22 +124,19 @@ const produk = gabungProduk(
 const yupi = produk[0];
 const koepoe = produk[1];
 
-describe('PO: validasi MOQ (tanpa kelipatan, feedback 12/11)', () => {
-  it('qty di bawah MOQ → pesan sesuai contoh PDF', () => {
-    expect(validasiQty(2, yupi)).toBe('Minimal pemesanan untuk SKU Yupi Milly Moos w/ Milk Hanging 24x108gr adalah 3 Pcs');
-    expect(validasiQty(3, yupi)).toBeNull();
-    expect(validasiQty(0, yupi)).toBeNull();
+describe('PO: MOQ hanya catatan, qty input manual (feedback 14/11)', () => {
+  it('qty di bawah MOQ tetap valid, tapi diberi catatan/flag', () => {
+    expect(validasiQty(2, yupi)).toBeNull();
+    expect(catatanMoq(2, yupi)).toBe('Di bawah min. order 3 Pcs/item (catatan)');
+    expect(catatanMoq(3, yupi)).toBeNull();
+    expect(catatanMoq(0, yupi)).toBeNull();
+    expect(validasiQty(-1, yupi)).toBe('Qty harus bilangan bulat ≥ 0.');
   });
-  it('MOQ ≠ kelipatan: qty ≥ MOQ bukan kelipatan tetap valid; SKU tanpa rule = MOQ 1, isi karton 1', () => {
-    expect(validasiQty(30, koepoe)).toBeNull();
-    expect(validasiQty(25, koepoe)).toBeNull();
-    expect(validasiQty(23, koepoe)).toMatch(/Minimal pemesanan .* adalah 24 Pcs/);
+  it('MOQ ≠ kelipatan; SKU tanpa rule = MOQ 1, isi karton 1; MT tanpa catatan', () => {
+    expect(catatanMoq(25, koepoe)).toBeNull();
+    expect(catatanMoq(23, koepoe)).toMatch(/min\. order 24 Pcs/);
+    expect(catatanMoq(1, koepoe, { channel: 'MT' })).toBeNull();
     expect(produk[2]).toMatchObject({ moq: 1, isi_karton: 1, satuan: 'Pcs' });
-  });
-  it('bulatkanQty hanya menaikkan ke MOQ', () => {
-    expect(bulatkanQty(5, koepoe)).toBe(24);
-    expect(bulatkanQty(25, koepoe)).toBe(25);
-    expect(bulatkanQty(0, koepoe)).toBe(0);
   });
 });
 
@@ -164,7 +161,7 @@ describe('PO: histori & suggested order', () => {
 
   it('suggested = rata-rata 3 bulan, dibulatkan ke MOQ/kelipatan; fallback 6 bulan', () => {
     expect(suggestedQty(ht.find((x) => x.kode_sku === 'YUP-001'), yupi)).toEqual({ qty: 5, basis: '3 bulan', rataBulanan: 4.3 });
-    expect(suggestedQty(ht.find((x) => x.kode_sku === 'KOE-001'), koepoe)).toEqual({ qty: 24, basis: '6 bulan', rataBulanan: 8 });
+    expect(suggestedQty(ht.find((x) => x.kode_sku === 'KOE-001'), koepoe)).toEqual({ qty: 8, basis: '6 bulan', rataBulanan: 8 }); // tidak dipaksa ke MOQ 24
     expect(suggestedQty(undefined, yupi).qty).toBe(0);
   });
 });
@@ -184,9 +181,10 @@ describe('PO: limit kredit & blokir', () => {
     const v = validasiPO({ 'YUP-001': 3, 'KOE-001': 24 }, produk, { limit_kredit: 50_000_000 }, 0);
     expect(v.total).toBe(3 * 168_000 + 24 * 6_500);
     expect(v.bolehSubmit).toBe(true);
-    const bad = validasiPO({ 'YUP-001': 2 }, produk, { limit_kredit: 50_000_000 }, 0);
-    expect(bad.errorItem['YUP-001']).toMatch(/adalah 3 Pcs/);
-    expect(bad.bolehSubmit).toBe(false);
+    const kurang = validasiPO({ 'YUP-001': 2 }, produk, { limit_kredit: 50_000_000 }, 0);
+    expect(kurang.errorItem).toEqual({});
+    expect(kurang.catatanItem['YUP-001']).toMatch(/min\. order 3 Pcs/);
+    expect(kurang.bolehSubmit).toBe(true);
     expect(validasiPO({}, produk, undefined, 0).bolehSubmit).toBe(false);
   });
 });

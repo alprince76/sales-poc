@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, History, PackagePlus, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, History, Info, PackagePlus, Plus, Sparkles, Trash2, Wallet } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HarusDitagih, InfoOutlet, KelompokFaktur, useDetailToko } from '../../components/DetailTokoView';
@@ -10,7 +10,7 @@ import { normKode, type FakturDinilai } from '../../lib/billing';
 import { ringkasPenagihan } from '../../lib/collection';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
-import { bulatkanQty, formatQty, formatQtySingkat, historiToko, labelMoq, suggestedQty, teksBiasaOrder, validasiPO, type HistoriSku, type ProdukLengkap } from '../../lib/order';
+import { formatQty, historiToko, labelMoq, suggestedQty, teksBiasaOrder, validasiPO, type HistoriSku, type ProdukLengkap } from '../../lib/order';
 import { daftarSkuStok, validasiStok } from '../../lib/stock';
 import type { ItemPO, LangkahKunjungan, StokInternal, StokKompetitor } from '../../lib/types';
 import { cariKunjungan, isSelesai, LABEL_LANGKAH, LANGKAH } from '../../lib/visit';
@@ -366,8 +366,8 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
   const diKeranjang = new Set(Object.keys(keranjang).filter((k) => keranjang[k] > 0));
   const langganan = hist.filter((h) => byKode.get(h.kode_sku) && byKode.get(h.kode_sku)!.status_aktif !== false && !diKeranjang.has(h.kode_sku));
 
-  const qtyAwal = (p: ProdukLengkap) => suggestedQty(histMap.get(p.kode_sku), p).qty || bulatkanQty(p.moq, p);
-  const tambah = (p: ProdukLengkap, qty = qtyAwal(p)) => {
+  // Input manual per satuan: tambah SKU selalu mulai dari 1; MOQ & "biasa order" hanya informasi.
+  const tambah = (p: ProdukLengkap, qty = 1) => {
     setKeranjang((k) => ({ ...k, [p.kode_sku]: k[p.kode_sku] || qty }));
     setUrutanItem((u) => (u.includes(p.kode_sku) ? u : [p.kode_sku, ...u]));
   };
@@ -377,11 +377,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
     setUrutanItem((u) => u.filter((x) => x !== kode));
   };
   const isiSaran = () => {
-    for (const h of langganan) {
-      const p = byKode.get(h.kode_sku)!;
-      const q = suggestedQty(h, p).qty;
-      if (q > 0) tambah(p, q);
-    }
+    for (const h of langganan) tambah(byKode.get(h.kode_sku)!);
   };
 
   const kirim = () => {
@@ -454,6 +450,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
             {items.map((p) => {
               const qty = keranjang[p.kode_sku] ?? 0;
               const e = v.errorItem[p.kode_sku];
+              const c = v.catatanItem[p.kode_sku];
               return (
                 <li key={p.kode_sku}>
                   <Card className={cn('p-3', e && 'border-red-200')}>
@@ -475,12 +472,17 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
                       <InfoHistori h={histMap.get(p.kode_sku)} p={p} />
                     </div>
                     <div className="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
-                      <QtyUnit label={`qty ${p.nama_sku}`} value={qty} isi={p.isi_karton} satuan={p.satuan} moq={p.moq} invalid={!!e} onChange={(n) => setQty(p.kode_sku, n)} />
+                      <QtyUnit label={`qty ${p.nama_sku}`} value={qty} isi={p.isi_karton} satuan={p.satuan} moq={1} invalid={!!e} onChange={(n) => setQty(p.kode_sku, n)} />
                       <span className="ml-auto whitespace-nowrap pt-2 text-sm font-semibold tabular text-slate-900">{formatRupiah(qty * p.harga)}</span>
                     </div>
                     {e && (
                       <p role="alert" className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700">
                         <AlertTriangle size={14} className="mt-px shrink-0" /> {e}
+                      </p>
+                    )}
+                    {!e && c && (
+                      <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">
+                        <Info size={14} className="mt-px shrink-0" /> {c}
                       </p>
                     )}
                   </Card>
@@ -507,15 +509,15 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
           <Card className="divide-y divide-slate-100 px-3">
             {langganan.map((h) => {
               const p = byKode.get(h.kode_sku)!;
-              const saran = suggestedQty(h, p).qty;
               return (
                 <div key={h.kode_sku} className="flex items-center gap-3 py-2.5">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-slate-900">{p.nama_sku}</div>
                     <InfoHistori h={h} p={p} />
+                    <p className="text-xs font-medium text-brand-700">{labelMoq(p)}</p>
                   </div>
-                  <button type="button" onClick={() => tambah(p, saran || undefined)} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-brand-50 px-2.5 text-xs font-semibold text-brand-700 hover:bg-brand-100" aria-label={`Tambah ${p.nama_sku}`}>
-                    <Plus size={14} /> {saran ? formatQtySingkat(saran, p) : 'Tambah'}
+                  <button type="button" onClick={() => tambah(p)} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-brand-50 px-2.5 text-xs font-semibold text-brand-700 hover:bg-brand-100" aria-label={`Tambah ${p.nama_sku}`}>
+                    <Plus size={14} /> Tambah
                   </button>
                 </div>
               );
@@ -539,7 +541,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
         </Button>
       </ActionBar>
 
-      <KonfirmasiPO open={konfirmasi} onClose={() => setKonfirmasi(false)} items={v.items} total={v.total} peringatan={v.kredit.peringatan} onSubmit={kirim} />
+      <KonfirmasiPO open={konfirmasi} onClose={() => setKonfirmasi(false)} items={v.items} total={v.total} peringatan={v.kredit.peringatan} catatan={v.catatanItem} onSubmit={kirim} />
     </>
   );
 }
@@ -551,6 +553,7 @@ export function KonfirmasiPO({
   items,
   total,
   peringatan,
+  catatan,
   onSubmit,
 }: {
   open: boolean;
@@ -558,6 +561,8 @@ export function KonfirmasiPO({
   items: ItemPO[];
   total: number;
   peringatan?: string | null;
+  /** Flag MOQ per item (GT) — informasi saja. */
+  catatan?: Record<string, string>;
   onSubmit: () => void;
 }) {
   return (
@@ -584,6 +589,7 @@ export function KonfirmasiPO({
               <div className="text-xs tabular text-slate-500">
                 {i.kode_sku} · {formatQty(i.qty, { satuan: i.satuan, isi_karton: i.isi_karton ?? 1 })} × {formatRupiah(i.harga)}
               </div>
+              {catatan?.[i.kode_sku] && <div className="text-xs font-medium text-amber-700">{catatan[i.kode_sku]}</div>}
             </div>
             <div className="shrink-0 text-sm font-semibold tabular">{formatRupiah(i.subtotal)}</div>
           </li>

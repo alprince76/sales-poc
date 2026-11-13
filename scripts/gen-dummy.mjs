@@ -1,8 +1,8 @@
 /**
- * Menambah data dummy v2 ke Dummy_ROVI_PJP.xlsx (deterministik, seed tetap):
- *  - Master_Toko: + alamat, tipe_outlet, limit_kredit, status_blokir
- *  - Produk, Order_Rules, Histori_Sales (sheet baru)
- * Sheet lama (PJP, ROVI, Contoh_*) TIDAK diubah → test regresi tetap valid.
+ * Membangun Dummy_ROVI_PJP.xlsx (deterministik, seed tetap).
+ *  - GT (v6): data ASLI MD dari docs/source/*.md (Customer Master, PJP SDR18, DI AWAL)
+ *  - Produk, Order_Rules, Histori_Sales, Price_List, MT/MSL: dummy
+ *  - Contoh_Output_Sales & Contoh_Detail_Toko dihitung ulang (acuan test regresi)
  *
  * Jalankan: node scripts/gen-dummy.mjs   (sumber: docs/original/Dummy_ROVI_PJP.xlsx)
  */
@@ -91,7 +91,7 @@ for (const [divisi, items] of Object.entries(KATALOG)) {
   });
 }
 
-// ── Workbook ─────────────────────────────────────────────────────────
+// ── Workbook (sheet produk lama + README diambil dari sumber) ──────────
 mkdirSync('docs/original', { recursive: true });
 try {
   readFileSync(SRC);
@@ -99,68 +99,179 @@ try {
   copyFileSync('docs/Dummy_ROVI_PJP.xlsx', SRC);
 }
 const wb = XLSX.read(readFileSync(SRC));
-const master = XLSX.utils.sheet_to_json(wb.Sheets.Master_Toko, { raw: true });
-const pjp = XLSX.utils.sheet_to_json(wb.Sheets.PJP, { raw: true });
-const rovi = XLSX.utils.sheet_to_json(wb.Sheets.ROVI, { raw: true });
 
-// Outstanding per toko (untuk menyetel limit kredit yang masuk akal)
-const outstanding = new Map();
-for (const f of rovi) outstanding.set(f.kode_toko, (outstanding.get(f.kode_toko) ?? 0) + f.sisa_tagihan);
-
-const JALAN = ['Raya', 'Merdeka', 'Pasar', 'Masjid', 'Siliwangi', 'Sudirman', 'Melati', 'Kenanga', 'Cempaka', 'Pahlawan'];
-const TIPE = ['Toko Kelontong', 'Toko Kelontong', 'Toko Kelontong', 'Grosir', 'Minimarket', 'Toko Bayi', 'Toko Kue'];
-// Toko demo: diblokir / limit tipis (semua ada di rute SLS01 Senin 9 Nov)
-const BLOKIR = new Set(['TK00054', 'TK00200']);
-const LIMIT_TIPIS = new Set(['TK00090', 'TK00143']);
-
-const masterV2 = master.map((m) => {
-  const out = outstanding.get(m.kode_toko) ?? 0;
-  let limit = Math.max(10, Math.ceil((out + int(5, 25) * 1_000_000) / 5_000_000) * 5) * 1_000_000;
-  if (LIMIT_TIPIS.has(m.kode_toko)) limit = Math.ceil((out + 1_000_000) / 1_000_000) * 1_000_000;
-  const blokir = BLOKIR.has(m.kode_toko) || (!LIMIT_TIPIS.has(m.kode_toko) && rand() < 0.02);
-  return {
-    ...m,
-    alamat: `Jl. ${pick(JALAN)} No. ${int(1, 180)}, ${m.area}`,
-    tipe_outlet: pick(TIPE),
-    limit_kredit: limit,
-    status_blokir: blokir ? 'YA' : 'TIDAK',
-    channel: 'GT',
-  };
-});
-// Pastikan TEH LENI (contoh demo utama) tidak diblokir.
-for (const m of masterV2) if (m.kode_toko === 'TK00236') m.status_blokir = 'TIDAK';
-
-// ── Histori Sales: Mei–Okt 2026 untuk tiap toko di PJP ───────────────
+// ── v6: GT dari data ASLI MD (docs/source/*.md) ───────────────────────
+// Customer Master 11-11-2026, PJP SDR18 Arli/Jajang/Yudha, DI AWAL 9 Nov 2026.
 const excelSerial = (iso) => Date.UTC(...iso.split('-').map((v, i) => (i === 1 ? v - 1 : +v))) / 86_400_000 + 25569;
+const isoAdd = (iso, n) => new Date(Date.UTC(...iso.split('-').map((v, i) => (i === 1 ? v - 1 : +v))) + n * 86_400_000).toISOString().slice(0, 10);
+const D0 = '2026-11-09';
+const SRC_DIR = 'docs/source';
+const cells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+const isRow = (l) => l.startsWith('|') && !/^\|\s*-{3}/.test(l);
+const angka = (s) => Number(String(s ?? '').replace(/,/g, '')) || 0; // "1,300,000" (customer master)
+const angkaId = (s) => Math.round(Number(String(s ?? '').replace(/\./g, '').replace(',', '.')) || 0); // "1.300.000,50"
+const kodeBersih = (k) => String(k).replace(/\./g, '').trim().toUpperCase(); // "112.167" → "112167"
+const tglId = (s) => {
+  const [d, m, y] = String(s).split('-');
+  return `${y}-${m}-${d}`;
+};
+
+// Customer Master
+const CM = new Map();
+for (const l of readFileSync(`${SRC_DIR}/Customer-Master_11-11-2026.md`, 'utf8').split('\n')) {
+  if (!isRow(l)) continue;
+  const c = cells(l);
+  if (c.length !== 12 || c[0] === 'cust code1') continue;
+  CM.set(kodeBersih(c[0]), {
+    nama: c[1], alamat: [c[2], c[3], c[4], c[5]], limit: angka(c[6]), top: angka(c[7]), rpp13: angka(c[8]), outstanding: angka(c[9]),
+  });
+}
+
+// PJP SDR18 — 4 minggu. DI AWAL 9 Nov cocok dengan Minggu 2 hari Senin → Minggu 1 dimulai 2 Nov 2026.
+const MINGGU1 = '2026-11-02';
+const SR = [
+  { file: 'SDR18_PJP_ARLI.md', kode: '000024', nama: 'Arli', bw: 'CBN - TO ARLI' },
+  { file: 'SDR18_PJP_JAJANG.md', kode: '000032', nama: 'Jajang', bw: 'CBN - TO JAJANG' },
+  { file: 'SDR18_PJP_YUDHA.md', kode: '000033', nama: 'Yudha', bw: 'CBN - TO YUDHA' },
+];
+const NAMA_HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+const pjp = [];
+const tokoPJP = new Map(); // kode → { sr, tipe }
+for (const sr of SR) {
+  let minggu = 0;
+  let hari = 0;
+  for (const l of readFileSync(`${SRC_DIR}/${sr.file}`, 'utf8').split('\n')) {
+    const mg = l.match(/^## Minggu (\d)/);
+    if (mg) minggu = +mg[1];
+    const hr = l.match(/^### Hari \S+ \( (\d) \)/);
+    if (hr) hari = +hr[1];
+    if (!isRow(l) || !minggu || !hari) continue;
+    const c = cells(l);
+    if (c.length !== 10 || !/^\d+$/.test(c[0])) continue;
+    const kode = kodeBersih(c[1]);
+    const tgl = isoAdd(MINGGU1, (minggu - 1) * 7 + (hari - 1));
+    pjp.push({ kode_salesman: sr.kode, nama_salesman: sr.nama, tanggal_kunjungan: excelSerial(tgl), hari: NAMA_HARI[hari - 1], kode_toko: kode, nama_toko: c[2], urutan: +c[0] });
+    if (!tokoPJP.has(kode)) tokoPJP.set(kode, { sr, tipe: c[9], nama: c[2], alamat: c[3], limit: angkaId(c[4]) });
+  }
+}
+
+const AREA_KW = ['SUMEDANG', 'TANJUNGSARI', 'JATINANGOR', 'CIMANGGUNG', 'SITURAJA', 'DARMARAJA', 'WADO', 'CONGGEANG', 'BUAHDUA', 'UJUNGJAYA', 'KERTAJATI',
+  'CIWIDEY', 'PANGALENGAN', 'BANJARAN', 'ARJASARI', 'SOREANG', 'MAJALAYA', 'PACET', 'CIPARAY', 'IBUN', 'BALEENDAH', 'CIMAHI', 'BATUJAJAR', 'CIHAMPELAS',
+  'SINDANGKERTA', 'CILILIN', 'GUNUNG HALU', 'PADALARANG', 'NGAMPRAH', 'CIPATAT', 'CIPEUNDEUY', 'CIKALONG', 'LEMBANG', 'SUBANG', 'SAGALAHERANG',
+  'TANJUNGSIANG', 'KASOMALANG', 'JALANCAGAK', 'CIATER', 'CISALAK', 'WANAYASA', 'BOJONG', 'CIMENYAN', 'UJUNG BERUNG', 'CIBIRU', 'CILEUNYI', 'SOLOKANJERUK', 'MARGAASIH', 'KATAPANG', 'DAYEUHKOLOT', 'BUAHBATU', 'KIARACONDONG', 'ANTAPANI', 'ANDIR', 'CIMINDI', 'PURWAKARTA', 'CICALENGKA', 'RANCAEKEK', 'CIKANCUNG', 'NAGREG', 'RANCAKALONG', 'MAJALENGKA', 'DAGO'];
+const areaDari = (teks) => {
+  const t = teks.toUpperCase().replace(/\s+/g, ' ');
+  const kw = AREA_KW.find((k) => t.includes(k) || t.includes(k.replace(' ', '')));
+  return kw ? kw.charAt(0) + kw.slice(1).toLowerCase().replace(/ (\w)/g, (_, x) => ` ${x.toUpperCase()}`) : 'Bandung';
+};
+
+const master = [];
+for (const [kode, t] of tokoPJP) {
+  const cm = CM.get(kode);
+  const alamat = (cm?.alamat ?? [t.alamat, '', '', '']).map((a) => (a ?? '').trim());
+  const limit = cm?.limit ?? t.limit;
+  const top = cm?.top ?? 0;
+  const tunai = limit === 0 && top === 0;
+  const m = {
+    kode_salesman: t.sr.kode, nama_salesman: t.sr.nama, salesman_bw: t.sr.bw, kode_toko: kode, nama_toko: cm?.nama ?? t.nama,
+    area: areaDari(alamat.join(' ')), alamat: alamat.filter(Boolean).join(' '),
+    alamat_1: alamat[0], alamat_2: alamat[1], alamat_3: alamat[2], alamat_4: alamat[3],
+    tipe_outlet: t.tipe, rpp13: cm?.rpp13 ?? 0, status_blokir: 'TIDAK', channel: 'GT',
+    tipe_bayar: tunai ? 'TUNAI' : 'KREDIT', top_hari: tunai ? 0 : top > 0 ? top : 14,
+  };
+  if (!tunai) m.limit_kredit = limit;
+  master.push(m);
+}
+const masterOf = new Map(master.map((m) => [m.kode_toko, m]));
+
+// ROVI = faktur DI AWAL asli + faktur dummy untuk sisa outstanding Customer Master.
+const randV6 = rng(20261114);
+const intV6 = (a, b) => a + Math.floor(randV6() * (b - a + 1));
+const rovi = [];
+const seenNo = new Set();
+let fakturAsli = 0;
+for (const l of readFileSync(`${SRC_DIR}/Daily_Monitoring_Tagihan_DC_Bandung_09.11.2026.md`, 'utf8').split('\n')) {
+  if (!isRow(l)) continue;
+  const c = cells(l);
+  if (c.length !== 12 || c[0] !== '09-11-2026') continue;
+  const kode = kodeBersih(c[4]);
+  if (!masterOf.has(kode) || seenNo.has(c[8])) continue;
+  seenNo.add(c[8]);
+  fakturAsli++;
+  rovi.push({
+    kode_toko: kode, nama_toko: masterOf.get(kode).nama_toko, no_faktur: c[8], tanggal_faktur: excelSerial(tglId(c[6])),
+    tanggal_jatuh_tempo: excelSerial(tglId(c[7])), nilai_faktur: angkaId(c[9]), sisa_tagihan: angkaId(c[10]), divisi: 'CBN',
+  });
+}
+const sisaAsli = new Map();
+for (const f of rovi) sisaAsli.set(f.kode_toko, (sisaAsli.get(f.kode_toko) ?? 0) + f.sisa_tagihan);
+let noInv = 0;
+for (const m of master) {
+  const sisa = (CM.get(m.kode_toko)?.outstanding ?? 0) - (sisaAsli.get(m.kode_toko) ?? 0);
+  if (sisa <= 0) continue;
+  const n = sisa < 1_000_000 ? 1 : sisa < 10_000_000 ? 2 : 3;
+  const top = m.top_hari || 14;
+  let tersisa = sisa;
+  for (let i = 0; i < n; i++) {
+    const nilai = i === n - 1 ? tersisa : Math.round((sisa / n) * (0.7 + randV6() * 0.6));
+    tersisa -= nilai;
+    const x = randV6();
+    // selisih D − jatuh tempo: overdue 45% · JT hari ini 10% · belum JT 45%
+    const selisih = x < 0.45 ? intV6(1, 45) : x < 0.55 ? 0 : -intV6(1, Math.max(1, top - 1));
+    const tglFaktur = isoAdd(D0, selisih - top);
+    const xd = randV6();
+    noInv++;
+    rovi.push({
+      kode_toko: m.kode_toko, nama_toko: m.nama_toko, no_faktur: `INV/2026/${tglFaktur.slice(5, 7)}/${String(noInv).padStart(5, '0')}`,
+      tanggal_faktur: excelSerial(tglFaktur), tanggal_jatuh_tempo: excelSerial(isoAdd(tglFaktur, top)),
+      nilai_faktur: nilai, sisa_tagihan: nilai, divisi: xd < 0.45 ? 'DNE' : xd < 0.85 ? 'CBN' : 'MRS',
+    });
+  }
+}
+
+// Contoh/demo: Yudha Senin 9 Nov (rute dengan faktur DI AWAL asli terbanyak).
+const DEMO_SR = SR[2];
+// Demo blokir (DUMMY): 2 toko KREDIT di rute 9 Nov yang outstanding-nya melebihi limit (rute demo dulu).
+const ruteD0 = pjp
+  .filter((p) => p.tanggal_kunjungan === excelSerial(D0))
+  .sort((a, b) => (b.kode_salesman === DEMO_SR.kode) - (a.kode_salesman === DEMO_SR.kode) || a.urutan - b.urutan)
+  .map((p) => masterOf.get(p.kode_toko));
+const BLOKIR = ruteD0
+  .filter((m) => m.tipe_bayar === 'KREDIT' && m.limit_kredit > 0 && (CM.get(m.kode_toko)?.outstanding ?? 0) > m.limit_kredit)
+  .slice(0, 2)
+  .map((m) => m.kode_toko);
+for (const k of BLOKIR) masterOf.get(k).status_blokir = 'YA';
+
+// ── Histori Sales: Mei–Okt 2026 untuk tiap toko GT; nilai/bulan ≈ RPP13 ──
 const BULAN = ['2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10'];
 const gtSku = produk.filter((p) => p.channel === 'GT');
 const ruleOf = new Map(rules.map((r) => [r.kode_sku, r]));
+const hargaDasar = new Map(produk.map((p) => [p.kode_sku, p.harga]));
 const histori = [];
-const tokoPjp = [...new Set(pjp.map((p) => p.kode_toko))];
-for (const kode of tokoPjp) {
+for (const m of master) {
   const n = int(2, 5);
   const skus = new Set();
   while (skus.size < n) skus.add(pick(gtSku).kode_sku);
+  const target = Math.max(150_000, m.rpp13) / n;
   for (const sku of skus) {
     const r = ruleOf.get(sku);
-    const base = r.moq * int(1, 3);
+    const base = Math.min(r.moq * 40, Math.max(r.moq, Math.round(target / hargaDasar.get(sku))));
     for (const bln of BULAN) {
       if (rand() > 0.6) continue;
       const hari = String(int(1, 28)).padStart(2, '0');
-      const qty = Math.max(r.moq, Math.ceil((base * (0.6 + rand() * 0.8)) / r.kelipatan) * r.kelipatan);
-      histori.push({ kode_toko: kode, kode_sku: sku, tanggal_po: excelSerial(`${bln}-${hari}`), qty });
+      const qty = Math.max(r.moq, Math.round(base * (0.6 + rand() * 0.8)));
+      histori.push({ kode_toko: m.kode_toko, kode_sku: sku, tanggal_po: excelSerial(`${bln}-${hari}`), qty });
     }
   }
 }
-histori.sort((a, b) => a.kode_toko.localeCompare(b.kode_toko) || a.tanggal_po - b.tanggal_po);
+
+const JALAN = ['Raya', 'Merdeka', 'Pasar', 'Masjid', 'Siliwangi', 'Sudirman', 'Melati', 'Kenanga', 'Cempaka', 'Pahlawan'];
 
 // ── Modern Trade (MT): SR, outlet, PJP, MSL, histori ──────────────────
 // RNG terpisah supaya data GT di atas tidak berubah.
 const randMT = rng(20261111);
 const pickMT = (arr) => arr[Math.floor(randMT() * arr.length)];
 const intMT = (a, b) => a + Math.floor(randMT() * (b - a + 1));
-const D0 = '2026-11-09';
-const isoAdd = (iso, n) => new Date(Date.UTC(...iso.split('-').map((v, i) => (i === 1 ? v - 1 : +v))) + n * 86_400_000).toISOString().slice(0, 10);
 const HARI = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const SR_MT = [
   { kode: 'SLSM01', nama: 'Rina', bw: 'CBN - MT RINA' },
@@ -228,12 +339,11 @@ for (const m of masterMT) {
   const t0 = [...tidak][0];
   histori.push({ kode_toko: m.kode_toko, kode_sku: t0, tanggal_po: excelSerial(isoAdd(tglKunjungan, -intMT(5, 60))), qty: ruleOf.get(t0).moq });
 }
-masterV2.push(...masterMT);
+const masterV2 = [...master, ...masterMT];
 const pjpV2 = [...pjp, ...pjpMT];
 histori.sort((a, b) => a.kode_toko.localeCompare(b.kode_toko) || a.tanggal_po - b.tanggal_po);
 
 // ── v4: kode SAP, divisi faktur, TUNAI/KREDIT + TOP (RNG terpisah; data lain tidak bergeser) ──
-const randV4 = rng(20261112);
 const DIV_IDX = { Danone: 1, Yupi: 2, Huki: 3, 'Koepoe-Koepoe': 4 };
 const SAP = new Map();
 for (const p of produk) {
@@ -246,26 +356,7 @@ for (const r of rules) r.kode_sku = sap(r.kode_sku);
 for (const h of histori) h.kode_sku = sap(h.kode_sku);
 for (const m of msl) m.kode_sku = sap(m.kode_sku);
 
-const TOP = [14, 21, 30, 30];
-for (const m of masterV2) {
-  if (m.channel !== 'GT') continue;
-  const tunai = randV4() < 0.25;
-  m.tipe_bayar = tunai ? 'TUNAI' : 'KREDIT';
-  m.top_hari = tunai ? 0 : TOP[Math.floor(randV4() * TOP.length)];
-}
-// Toko demo: TEH LENI & toko blokir/limit tipis = KREDIT; WARMEL contoh TUNAI tidak dipaksa.
-for (const m of masterV2)
-  if (['TK00236', 'TK00054', 'TK00200', 'TK00090', 'TK00143'].includes(m.kode_toko)) {
-    m.tipe_bayar = 'KREDIT';
-    m.top_hari = 30;
-  }
-// TUNAI: limit kredit tidak berlaku.
-for (const m of masterV2) if (m.tipe_bayar === 'TUNAI') delete m.limit_kredit;
-
-const roviV4 = rovi.map((f) => {
-  const x = randV4();
-  return { ...f, divisi: x < 0.45 ? 'DNE' : x < 0.85 ? 'CBN' : 'MRS' };
-});
+// GT: TUNAI/KREDIT, TOP & divisi faktur sudah dari data asli (v6).
 
 // ── v5: customer master (bill address 1–4, RPP13, cust group), new material, sub brand,
 //        isi karton, price list per channel (RNG terpisah; data lain tidak bergeser) ──
@@ -277,7 +368,7 @@ const nilaiHistori = new Map();
 for (const h of histori) nilaiHistori.set(h.kode_toko, (nilaiHistori.get(h.kode_toko) ?? 0) + h.qty * (hargaSku.get(h.kode_sku) ?? 0));
 const KEL = ['Sukamaju', 'Mekarsari', 'Cibubur', 'Harapan Jaya', 'Sukasari', 'Tengah', 'Pasir Gunung', 'Cimanggis'];
 const CUST_GROUP = ['BORMA DAKOTA GROUP', 'BORMA CIJERAH GROUP', 'YOMART GROUP', 'GRIYA PASARAYA GROUP', 'SETIABUDI GROUP', 'TIP TOP GROUP'];
-for (const m of masterV2) {
+for (const m of masterMT) {
   const jalan = m.alamat.split(',')[0];
   m.alamat_1 = jalan;
   m.alamat_2 = `RT ${String(intV5(1, 12)).padStart(2, '0')}/RW ${String(intV5(1, 9)).padStart(2, '0')}`;
@@ -285,7 +376,7 @@ for (const m of masterV2) {
   m.alamat_4 = m.area ?? '';
   // RPP13: rata-rata penjualan per bulan (13 periode) — dummy dari histori 6 bulan, minimal Rp 750rb.
   m.rpp13 = Math.max(750_000, Math.round(((nilaiHistori.get(m.kode_toko) ?? 0) / 6) / 1000) * 1000 + intV5(0, 20) * 50_000);
-  if (m.channel === 'MT') m.cust_group = pickV5(CUST_GROUP);
+  m.cust_group = pickV5(CUST_GROUP);
 }
 const ISI = [12, 24, 24, 48];
 for (const r of rules) {
@@ -305,6 +396,56 @@ for (const p of produk) {
   priceList.push({ kode_sku: p.kode_sku, channel: 'MT', harga: Math.round((p.harga * 1.05) / 100) * 100 });
 }
 
+// ── Contoh_Output_Sales & Contoh_Detail_Toko (hitung ulang, independen dari src/lib) ──
+const DS = excelSerial(D0);
+const fakturPerToko = new Map();
+for (const f of rovi) {
+  if (f.sisa_tagihan <= 0) continue;
+  if (!fakturPerToko.has(f.kode_toko)) fakturPerToko.set(f.kode_toko, []);
+  fakturPerToko.get(f.kode_toko).push(f);
+}
+const nilai = (f) => {
+  const sel = DS - f.tanggal_jatuh_tempo;
+  return { ...f, st: sel > 0 ? 0 : sel === 0 ? 1 : 2, telat: Math.max(0, sel) };
+};
+const barisContoh = pjp
+  .filter((p) => p.kode_salesman === DEMO_SR.kode && p.tanggal_kunjungan === DS)
+  .map((p) => {
+    const fs = (fakturPerToko.get(p.kode_toko) ?? []).map(nilai);
+    const od = fs.filter((f) => f.st === 0);
+    const jt = fs.filter((f) => f.st === 1);
+    const maxOd = Math.max(0, ...od.map((f) => f.telat));
+    const total = [...od, ...jt].reduce((a, f) => a + f.sisa_tagihan, 0);
+    const status = od.length ? `Overdue ${maxOd} hari` : jt.length ? 'Jatuh Tempo Hari Ini' : 'Tidak ada tagihan';
+    return [p.urutan, p.kode_toko, masterOf.get(p.kode_toko).nama_toko, status, od.length, jt.length, total, od.length + jt.length ? 'YA' : '-', maxOd];
+  })
+  .sort((a, b) => (b[7] === 'YA') - (a[7] === 'YA') || b[8] - a[8] || (b[5] > 0) - (a[5] > 0) || a[0] - b[0] || a[1].localeCompare(b[1]));
+const rp = (n) => `Rp ${n.toLocaleString('id-ID')}`;
+const totalContoh = barisContoh.reduce((a, r) => a + r[6], 0);
+const perlu = barisContoh.filter((r) => r[7] === 'YA').length;
+const contohSales = [
+  [`Kunjungan Hari Ini — ${DEMO_SR.nama} (${DEMO_SR.kode}) — Senin, 9 Nov 2026`],
+  [`${barisContoh.length} kunjungan · ${perlu} perlu ditagih · total ${rp(totalContoh)}`],
+  [],
+  ['urutan_rute', 'kode_toko', 'nama_toko', 'status', 'faktur_overdue', 'faktur_jt_hari_ini', 'total_harus_ditagih', 'perlu_ditagih', 'max_hari_overdue'],
+  ...barisContoh,
+];
+// Toko demo detail: toko non-blokir di rute demo dengan jumlah faktur overdue terbanyak.
+const demo = barisContoh.filter((r) => !BLOKIR.includes(r[1])).sort((a, b) => b[4] - a[4] || b[6] - a[6])[0];
+const fDemo = (fakturPerToko.get(demo[1]) ?? [])
+  .map(nilai)
+  .sort((a, b) => a.st - b.st || a.tanggal_jatuh_tempo - b.tanggal_jatuh_tempo || a.no_faktur.localeCompare(b.no_faktur));
+const LBL = ['Overdue', 'Jatuh Tempo Hari Ini', 'Belum Jatuh Tempo'];
+const contohDetail = [
+  [`Detail Toko — ${demo[1]} ${demo[2]} (kunjungan 9 Nov 2026)`],
+  [`Harus ditagih: ${rp(demo[6])}`],
+  [],
+  ['no_faktur', 'tanggal_faktur', 'jatuh_tempo', 'nilai_faktur', 'sisa_tagihan', 'status', 'hari_terlambat'],
+  ...fDemo.map((f) => [f.no_faktur, f.tanggal_faktur, f.tanggal_jatuh_tempo, f.nilai_faktur, f.sisa_tagihan, LBL[f.st], f.st === 0 ? f.telat : '']),
+];
+wb.Sheets.Contoh_Output_Sales = XLSX.utils.aoa_to_sheet(contohSales);
+wb.Sheets.Contoh_Detail_Toko = XLSX.utils.aoa_to_sheet(contohDetail);
+
 // ── Tulis ────────────────────────────────────────────────────────────
 const setSheet = (name, rows, dateCols = []) => {
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -323,7 +464,7 @@ const setSheet = (name, rows, dateCols = []) => {
   else XLSX.utils.book_append_sheet(wb, ws, name);
 };
 setSheet('Master_Toko', masterV2);
-setSheet('ROVI', roviV4, ['tanggal_faktur', 'tanggal_jatuh_tempo']);
+setSheet('ROVI', rovi, ['tanggal_faktur', 'tanggal_jatuh_tempo']);
 setSheet('PJP', pjpV2, ['tanggal_kunjungan']);
 setSheet('MSL', msl);
 setSheet('Produk', produk);
@@ -331,22 +472,20 @@ setSheet('Order_Rules', rules);
 setSheet('Histori_Sales', histori, ['tanggal_po']);
 setSheet('Price_List', priceList);
 
-// README sheet: tambahkan keterangan
-const readme = XLSX.utils.sheet_to_json(wb.Sheets.README, { header: 1 });
-if (!readme.some((r) => String(r[0] ?? '').startsWith('v5:'))) {
-  readme.push(['v5: Master_Toko.alamat_1..4 + rpp13 + cust_group (MT); Produk.sub_brand + new_material; Order_Rules.isi_karton; sheet Price_List (GT/MT) = DUMMY.']);
-}
-if (!readme.some((r) => String(r[0] ?? '').startsWith('v4:'))) {
-  readme.push(['v4: kode_sku = kode SAP 8 digit; ROVI.divisi (DNE/CBN/MRS); Master_Toko.tipe_bayar (TUNAI/KREDIT) + top_hari = DUMMY.']);
-}
-if (!readme.some((r) => String(r[0] ?? '').startsWith('v3:'))) {
-  readme.push(['v3: Modern Trade — SR SLSM01/SLSM02, outlet MT00001–MT00060 (channel=MT), PJP 9–14 Nov, sheet MSL (status_listed YES/NO), Produk.status_aktif = DUMMY.']);
-}
-if (!readme.some((r) => String(r[0] ?? '').startsWith('v2:'))) {
-  readme.push([''], ['v2: Master_Toko + alamat/tipe_outlet/limit_kredit/status_blokir; sheet Produk, Order_Rules, Histori_Sales (Mei–Okt 2026) = DUMMY.']);
-}
+// README sheet
+const readme = [
+  ['DATA DUMMY — Sales Visit & Due Invoice Tracker (v6: berbasis data ASLI MD DC Bandung)'],
+  ['GT (Arli 000024, Jajang 000032, Yudha 000033) diambil dari docs/source: Customer Master 11-11-2026, PJP SDR18, DI AWAL 9 Nov 2026.'],
+  ['PJP 4 minggu: Minggu 1 = 2–8 Nov, Minggu 2 = 9–15 Nov (DI AWAL 9 Nov = Minggu 2 Senin), Minggu 3 = 16–22 Nov, Minggu 4 = 23–29 Nov 2026.'],
+  [`ROVI: ${fakturAsli} faktur ASLI dari DI AWAL + ${noInv} faktur DUMMY (INV/2026/..) untuk sisa outstanding Customer Master.`],
+  ['Master_Toko: alamat 1–4, limit kredit, TOP, RPP13 = asli. TUNAI jika limit 0 & TOP 0; TOP 0 dengan limit → KREDIT 14 hari (asumsi).'],
+  [`DUMMY: status_blokir demo (${BLOKIR.join(', ')}), area (dari kata kunci alamat), Histori_Sales, Produk/Order_Rules/Price_List, seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).`],
+  [''],
+  ['Sheet: Master_Toko, ROVI (DI AWAL), PJP, Produk, Order_Rules, Histori_Sales, MSL, Price_List, Contoh_Output_Sales, Contoh_Detail_Toko.'],
+];
 wb.Sheets.README = XLSX.utils.aoa_to_sheet(readme);
 
 const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', compression: true });
 for (const p of OUT) writeFileSync(p, buf);
+console.log(`gt_toko=${master.length} pjp_gt=${pjp.length} faktur_asli=${fakturAsli} faktur_dummy=${noInv} demo=${demo[1]} blokir=${BLOKIR}`);
 console.log(`mt_outlet=${masterMT.length} msl=${msl.length} produk=${produk.length} rules=${rules.length} histori=${histori.length} master=${masterV2.length} blokir=${masterV2.filter((m) => m.status_blokir === 'YA').length}`);

@@ -33,7 +33,7 @@ Buka URL yang muncul (biasanya http://localhost:5173):
 | `/mt/toko/:kode?step=po\|msl\|summary` | SR MT | Stepper: Input PO (cari SKU) → Cek MSL (grid principal + SKU warning) → Summary (MSL sebelum→sesudah) & Submit PO |
 | `/admin` | Admin / supervisor (responsive) | Dashboard · Rute Salesman · Toko & Faktur · Penagihan · Purchase Order · Cek Stok · **MSL Compliance (MT)** · Data & Upload |
 
-Saat pertama dibuka, data dimuat dari `public/Dummy_ROVI_PJP.xlsx`. Tanggal default **9 Nov 2026**, karena PJP dummy berisi 9–14 Nov 2026.
+Saat pertama dibuka, data dimuat dari `public/Dummy_ROVI_PJP.xlsx`. Tanggal default **9 Nov 2026** (Senin, PJP Minggu 2). PJP GT berisi siklus 4 minggu, 2–29 Nov 2026. Contoh rute paling lengkap: **Yudha (000033)** pada 9 Nov, dengan 10 toko perlu ditagih dari DI AWAL asli.
 
 ```bash
 npm test          # unit test + test regresi (Vitest)
@@ -46,7 +46,7 @@ npm run build     # typecheck + build produksi ke dist/
 2. Buka **TEH LENI /PASEH**, lalu ketuk faktur `INV/2026/09/00188` dan pilih **Paid**. Harus Ditagih turun ke Rp 7.300.000.
    Coba juga *Partially Paid* (nominal), *Janji Bayar* (tanggal), dan *Bad Debt* (alasan + "Lainnya").
 3. **Cek Stok**: isi Display/Backroom (CAR/PCS), lalu tab Kompetitor. Daftar kompetitor otomatis muncul dari cek stok sebelumnya.
-4. **PO**: cari SKU (kode/nama), qty dalam **CAR atau PCS** (1 CAR = isi karton), MOQ "Min. 3 Pcs/item" (tanpa kelipatan),
+4. **PO**: cari SKU (kode/nama), qty dalam **CAR atau PCS** (1 CAR = isi karton), qty diinput manual per satuan; MOQ "Min. 3 Pcs/item" hanya badge + catatan kuning bila di bawah MOQ (tidak memblokir submit),
    **History pembelian** untuk tambah cepat. Submit → **Submit PO · Rp …**.
 5. **Selesai Kunjungan**: rute menunjukkan 1/77 selesai.
 6. `/admin` = **Dashboard GT** (TOTAL AR, TOTAL DI AKHIR, BELUM TERTAGIH, JB/BD, AR OUTSTANDING); `/admin/mt` = **Dashboard MT** (toko order, MSL compliance, SKU belum transaksi).
@@ -90,7 +90,14 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
 - Tanggal: tanggal Excel, `YYYY-MM-DD`, atau `D/M/YYYY`. Uang: bilangan bulat rupiah.
 - Kolom wajib hilang → file ditolak. Baris error ditampilkan dengan nomor baris Excel → **Simpan baris valid saja** / **Batal**.
 - Data dummy tidak disimpan di `localStorage` (dimuat ulang dari file). Data hasil upload disimpan, dan muncul peringatan bila melebihi kuota browser.
-- Dummy dibuat oleh `node scripts/gen-dummy.mjs` dari `docs/original/Dummy_ROVI_PJP.xlsx`: data GT asli tidak diubah; ditambah 2 SR MT (SLSM01 Rina, SLSM02 Dodi), 60 outlet MT, PJP MT, sheet MSL, 3 SKU non-aktif, kode SAP 8 digit, divisi faktur, TUNAI/KREDIT + TOP, bill address 1–4, RPP13, cust group, new material, sub brand, isi karton, dan Price List (MT = GT +5%).
+- Dummy dibuat oleh `node scripts/gen-dummy.mjs`. Sejak v6, data GT diambil dari **data asli MD DC Bandung** di `docs/source/`:
+  - **Sumber:** Customer Master 11-11-2026, PJP SDR18 Arli (000024), Jajang (000032), Yudha (000033), dan Daily Monitoring Tagihan / DI AWAL 9 Nov 2026.
+  - **Master toko:** 1.374 toko coverage 3 SR. Alamat 1–4, credit limit, TOP, dan RPP13 diambil dari Customer Master.
+  - **TUNAI/KREDIT:** toko dengan limit 0 dan TOP 0 = TUNAI. Toko dengan TOP 0 tetapi punya limit dianggap KREDIT 14 hari.
+  - **PJP:** 4 minggu. Minggu 2 = 9–15 Nov, sesuai DI AWAL.
+  - **ROVI:** 89 faktur asli DI AWAL ditambah faktur dummy `INV/2026/..` untuk sisa outstanding Customer Master.
+  - **Tetap dummy:** area (diturunkan dari alamat), 2 toko blokir demo, Histori Sales (≈ RPP13), Produk / Order Rules / Price List, dan seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).
+  - Sheet `Contoh_Output_Sales` dan `Contoh_Detail_Toko` (Yudha, 9 Nov) dihitung ulang dan menjadi acuan test regresi.
 
 ## Aturan bisnis
 
@@ -100,7 +107,7 @@ Semua logika berupa pure function di `src/lib/` dan diuji:
 |---|---|
 | [billing.ts](src/lib/billing.ts) | Status faktur (Overdue / JT hari ini / Belum JT), Perlu Ditagih, total harus ditagih, urutan prioritas, join `kode_toko` (trim + uppercase, tidak pakai nama) |
 | [collection.ts](src/lib/collection.ts) | Validasi Paid / Partially Paid (0 < nominal < sisa) / Janji Bayar (tanggal ≥ kunjungan) / Bad Debt (alasan wajib). **Paid & Partial mengurangi sisa tagihan**; Janji & Bad Debt hanya dicatat |
-| [order.ts](src/lib/order.ts) | Validasi MOQ per item (GT saja; **bukan** kelipatan), qty disimpan dalam Pcs (CAR × isi karton), harga = Price List channel → Price List umum → Master SKU, suggested qty = rata-rata/bulan 3 bulan terakhir (fallback 6 bulan). Toko diblokir → PO boleh + peringatan; KREDIT melebihi limit → ditolak |
+| [order.ts](src/lib/order.ts) | MOQ per item = catatan/flag saja (GT; tidak memblokir, qty tidak dinaikkan otomatis), qty disimpan dalam Pcs (CAR × isi karton), harga = Price List channel → Price List umum → Master SKU, suggested qty = rata-rata/bulan 3 bulan terakhir (fallback 6 bulan), tidak dipaksa ke MOQ. Toko diblokir → PO boleh + peringatan; KREDIT melebihi limit → ditolak |
 | [outlet.ts](src/lib/outlet.ts) | Alamat lengkap (bill address 1–4), last order value/date (histori + PO aplikasi) |
 | [inkasso.ts](src/lib/inkasso.ts) | Daftar Inkasso: toko coverage SR dengan tagihan JT/overdue (AR awal); Tertagih = ada log di D & lunas, sisanya Belum ditagih |
 | [stock.ts](src/lib/stock.ts) | Daftar SKU = pernah dibeli toko ∪ channel GT; qty bulat ≥ 0 |
@@ -120,5 +127,5 @@ src/pages/sales/     layout bottom nav, Rute/Tagihan/Toko/Aktivitas, VisitPage (
 src/pages/mt/        aplikasi MT: Rute/Toko/Order/Aktivitas, toko → divisi → SKU list → PO
 src/pages/admin/     layout sidebar/drawer, Dashboard, Data, Rute, Toko, Penagihan, PO, Stok, MSL
 src/pages/Home.tsx   pemilih aplikasi (/)
-scripts/gen-dummy.mjs   generator data dummy v2
+scripts/gen-dummy.mjs   generator data dummy (GT dari docs/source/*.md)
 ```

@@ -216,7 +216,8 @@ function parseRows<T>(tipe: TipeData, header: unknown[], rows: Rows): HasilParse
       } else {
         const n = parseInt0(raw);
         if (n === null) alasan.push(`${k.nama} bukan angka bulat ("${String(raw)}")`);
-        else if (n < 0) alasan.push(`${k.nama} tidak boleh negatif`);
+        // rpp13 (rata-rata penjualan) boleh negatif di data asli (net retur).
+        else if (n < 0 && k.nama !== 'rpp13') alasan.push(`${k.nama} tidak boleh negatif`);
         else obj[k.nama] = n;
       }
     }

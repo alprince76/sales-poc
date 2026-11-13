@@ -55,18 +55,19 @@ export interface OpsiQty {
   channel?: ChannelHarga;
 }
 
-/** Pesan error item; null = valid. qty 0 = tidak dipesan (valid). GT: cek MOQ saja (tanpa kelipatan). */
-export function validasiQty(qty: number, p: Pick<ProdukLengkap, 'nama_sku' | 'moq' | 'satuan'>, opsi: OpsiQty = {}): string | null {
+/** Pesan error item; null = valid. qty 0 = tidak dipesan (valid). MOQ TIDAK memblokir (lihat catatanMoq). */
+export function validasiQty(qty: number, _p?: unknown, _opsi: OpsiQty = {}): string | null {
   if (!Number.isInteger(qty) || qty < 0) return 'Qty harus bilangan bulat ≥ 0.';
-  if (qty === 0 || opsi.channel === 'MT') return null;
-  if (qty < p.moq) return `Minimal pemesanan untuk SKU ${p.nama_sku} adalah ${p.moq} ${p.satuan}`;
   return null;
 }
 
-/** Naikkan ke MOQ bila kurang. */
-export function bulatkanQty(qty: number, p: Pick<ProdukLengkap, 'moq'>): number {
-  if (qty <= 0) return 0;
-  return Math.max(qty, p.moq);
+/**
+ * GT: MOQ hanya informasi/flag — qty diinput manual per satuan dan tetap boleh disubmit.
+ * Mengembalikan catatan bila qty > 0 di bawah MOQ; null bila tidak perlu catatan (atau MT).
+ */
+export function catatanMoq(qty: number, p: Pick<ProdukLengkap, 'moq' | 'satuan'>, opsi: OpsiQty = {}): string | null {
+  if (opsi.channel === 'MT' || qty <= 0 || qty >= p.moq) return null;
+  return `Di bawah min. order ${p.moq} ${p.satuan}/item (catatan)`;
 }
 
 /** "2 CAR (48 Pcs)" bila qty pas kelipatan karton; selain itu "12 Pcs". */
@@ -127,18 +128,18 @@ export interface Saran {
 
 /**
  * Suggested order = rata-rata qty/bulan dalam 3 bulan terakhir (fallback 6 bulan),
- * dibulatkan ke atas ke MOQ.
+ * dibulatkan ke atas (tidak dipaksa ke MOQ — MOQ hanya catatan).
  */
-export function suggestedQty(h: HistoriSku | undefined, p: Pick<ProdukLengkap, 'moq'>): Saran {
+export function suggestedQty(h: HistoriSku | undefined, _p?: Pick<ProdukLengkap, 'moq'>): Saran {
   if (!h) return { qty: 0, basis: null, rataBulanan: 0 };
   const tiga = h.perBulan.slice(3).reduce((a, b) => a + b, 0);
   if (tiga > 0) {
     const rata = tiga / 3;
-    return { qty: bulatkanQty(Math.ceil(rata), p), basis: '3 bulan', rataBulanan: Math.round(rata * 10) / 10 };
+    return { qty: Math.ceil(rata), basis: '3 bulan', rataBulanan: Math.round(rata * 10) / 10 };
   }
   if (h.totalQty > 0) {
     const rata = h.totalQty / 6;
-    return { qty: bulatkanQty(Math.ceil(rata), p), basis: '6 bulan', rataBulanan: Math.round(rata * 10) / 10 };
+    return { qty: Math.ceil(rata), basis: '6 bulan', rataBulanan: Math.round(rata * 10) / 10 };
   }
   return { qty: 0, basis: null, rataBulanan: 0 };
 }
@@ -203,6 +204,8 @@ export interface ValidasiPO {
   items: ItemPO[];
   total: number;
   errorItem: Record<string, string>;
+  /** GT: item di bawah MOQ — flag/catatan saja, tidak memblokir submit. */
+  catatanItem: Record<string, string>;
   kredit: CekKredit;
   bolehSubmit: boolean;
 }
@@ -216,14 +219,17 @@ export function validasiPO(
 ): ValidasiPO {
   const byKode = new Map(produk.map((p) => [p.kode_sku, p]));
   const errorItem: Record<string, string> = {};
+  const catatanItem: Record<string, string> = {};
   for (const [kode, qty] of Object.entries(keranjang)) {
     const p = byKode.get(normKode(kode));
     if (!p) continue;
-    const e = validasiQty(qty, p, { channel: opsi.channel });
+    const e = validasiQty(qty);
     if (e) errorItem[p.kode_sku] = e;
+    const c = catatanMoq(qty, p, { channel: opsi.channel });
+    if (c) catatanItem[p.kode_sku] = c;
   }
   const items = buatItems(keranjang, produk);
   const total = totalItems(items);
   const kredit = cekKredit(outlet, outstanding, total, opsi);
-  return { items, total, errorItem, kredit, bolehSubmit: items.length > 0 && !Object.keys(errorItem).length && kredit.boleh };
+  return { items, total, errorItem, catatanItem, kredit, bolehSubmit: items.length > 0 && !Object.keys(errorItem).length && kredit.boleh };
 }

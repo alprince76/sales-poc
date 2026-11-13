@@ -5,7 +5,7 @@ import { indexFaktur } from './billing';
 import { applyPenagihan } from './collection';
 import { toTXT, toXLSX } from './csv';
 import { daftarInkasso } from './inkasso';
-import { formatQty, gabungProduk, labelMoq, validasiPO, validasiQty } from './order';
+import { catatanMoq, formatQty, gabungProduk, labelMoq, validasiPO } from './order';
 import { alamatLengkap, lastOrder } from './outlet';
 import type { Faktur, MasterToko, Penagihan, PurchaseOrder } from './types';
 
@@ -106,9 +106,9 @@ describe('CAR/PCS, MOQ per item, price list, new material', () => {
 
   it('MOQ bukan kelipatan; label "Min. 12 Pcs/item"; MT tanpa MOQ', () => {
     expect(labelMoq(huki)).toBe('Min. 12 Pcs/item');
-    expect(validasiQty(13, huki)).toBeNull();
-    expect(validasiQty(11, huki)).toBe('Minimal pemesanan untuk SKU HUKI COTTON BUD BAYI 100S 1X48 adalah 12 Pcs');
-    expect(validasiQty(1, huki, { channel: 'MT' })).toBeNull();
+    expect(catatanMoq(13, huki)).toBeNull();
+    expect(catatanMoq(11, huki)).toBe('Di bawah min. order 12 Pcs/item (catatan)');
+    expect(catatanMoq(1, huki, { channel: 'MT' })).toBeNull();
     expect(validasiPO({ '10302153': 2 }, mt, undefined, 0, { channel: 'MT' }).bolehSubmit).toBe(true);
   });
 
