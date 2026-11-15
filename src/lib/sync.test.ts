@@ -19,6 +19,23 @@ describe('client ↔ API (in-memory)', () => {
     expect(await ambilData('histori', api)).toEqual(rows);
   });
 
+  it('gzip dikirim sebagai octet-stream; bila proxy merusak body gzip → ulang tanpa gzip & tetap tersimpan', async () => {
+    const tipeDikirim: string[] = [];
+    // Tiru Netlify lama: body ber-content-type teks dibaca sebagai UTF-8 → byte gzip rusak.
+    const proxyRusak: typeof fetch = async (input, init) => {
+      const h = new Headers(init?.headers);
+      tipeDikirim.push(h.get('content-type') ?? '');
+      let body = init?.body as BodyInit | undefined;
+      if (h.get('x-body-encoding') === 'gzip') body = new TextDecoder().decode(await new Response(body).arrayBuffer());
+      return handle(new Request(`http://x${String(input)}`, { ...init, body }), store);
+    };
+    const rows = [{ kode_sku: '124024', satuan: 'Pcs', moq: 6 }];
+    const info = await simpanData('rules', rows, proxyRusak);
+    expect(info.jumlah).toBe(1);
+    expect(tipeDikirim).toEqual(['application/octet-stream', 'application/json']);
+    expect(await ambilData('rules', api)).toEqual(rows);
+  });
+
   it('server tidak tersedia (respons HTML / network error) → RemoteError status 0', async () => {
     const html: typeof fetch = async () => new Response('<!doctype html>', { headers: { 'content-type': 'text/html' } });
     await expect(ambilMeta(html)).rejects.toBeInstanceOf(RemoteError);

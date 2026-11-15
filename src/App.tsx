@@ -25,16 +25,22 @@ function Splash() {
 }
 
 export function App() {
-  const { status, error, resetDummy } = useData();
+  const { status, error } = useData();
   if (status === 'loading') return <Splash />;
   if (status === 'error')
     return (
       <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-4 text-center">
-        <p className="font-semibold text-red-700">Gagal memuat data</p>
-        <p className="mt-1 text-sm text-slate-600">{error}</p>
-        <Button className="mt-4" onClick={() => void resetDummy()}>
+        <p className="font-semibold text-red-700">Data belum bisa dimuat</p>
+        <p className="mt-1 text-sm text-slate-600">Periksa koneksi internet, lalu coba lagi. Data Anda aman dan tidak berubah.</p>
+        <Button className="mt-4" onClick={() => window.location.reload()}>
           Coba lagi
         </Button>
+        {error && (
+          <details className="mt-4 text-xs text-slate-400">
+            <summary className="cursor-pointer select-none">Detail untuk tim teknis</summary>
+            <p className="mt-1">{error}</p>
+          </details>
+        )}
       </div>
     );
 

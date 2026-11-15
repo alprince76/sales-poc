@@ -86,14 +86,50 @@ export function normalizeDate(v: unknown): ISODate | null {
       const out = fromUTCParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
       return isISODate(out) ? out : null;
     }
-    const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
-    if (dmy) {
-      const out = fromUTCParts(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
+    const ymd = /^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/.exec(s);
+    if (ymd) {
+      const out = fromUTCParts(Number(ymd[1]), Number(ymd[2]), Number(ymd[3]));
       return isISODate(out) ? out : null;
+    }
+    // dd-mm-yyyy / dd/mm/yy (tahun 2 digit = 20yy), boleh diikuti jam.
+    const dmy = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?:[T ].*)?$/.exec(s);
+    if (dmy) {
+      const th = dmy[3].length === 2 ? 2000 + Number(dmy[3]) : Number(dmy[3]);
+      const out = fromUTCParts(th, Number(dmy[2]), Number(dmy[1]));
+      return isISODate(out) ? out : null;
+    }
+    // "9 Nov 2026", "09-Nov-26", "9 November 2026", "9 Agustus 2026" (nama bulan Indonesia/Inggris).
+    const nama = /^(\d{1,2})[\s/.-]+([a-z]+)\.?[\s/.-]+(\d{4}|\d{2})$/i.exec(s);
+    if (nama) {
+      const b = bulanDariNama(nama[2]);
+      if (b) {
+        const th = nama[3].length === 2 ? 2000 + Number(nama[3]) : Number(nama[3]);
+        const out = fromUTCParts(th, b, Number(nama[1]));
+        return isISODate(out) ? out : null;
+      }
     }
     if (/^\d+(\.\d+)?$/.test(s)) return normalizeDate(Number(s));
   }
   return null;
+}
+
+const NAMA_BULAN: [number, string[]][] = [
+  [1, ['jan', 'januari', 'january']],
+  [2, ['feb', 'februari', 'february', 'pebruari']],
+  [3, ['mar', 'maret', 'march']],
+  [4, ['apr', 'april']],
+  [5, ['mei', 'may']],
+  [6, ['jun', 'juni', 'june']],
+  [7, ['jul', 'juli', 'july']],
+  [8, ['agu', 'agt', 'ags', 'agus', 'agustus', 'aug', 'august']],
+  [9, ['sep', 'sept', 'september']],
+  [10, ['okt', 'oct', 'oktober', 'october']],
+  [11, ['nov', 'nop', 'november', 'nopember']],
+  [12, ['des', 'dec', 'desember', 'december']],
+];
+function bulanDariNama(n: string): number | null {
+  const t = n.toLowerCase();
+  return NAMA_BULAN.find(([, a]) => a.includes(t))?.[0] ?? null;
 }
 
 const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];

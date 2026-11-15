@@ -15,6 +15,16 @@ describe('API /api/data', () => {
     expect((await handle(req('GET', '/api/data/meta'), null)).status).toBe(503);
   });
 
+  it('body gzip rusak → pesan jelas; header gzip tapi body JSON polos → diterima', async () => {
+    const store = memoryStore();
+    const rusak = new Request('http://x/api/data/rules', { method: 'PUT', headers: { 'x-body-encoding': 'gzip' }, body: new Uint8Array([31, 139, 1, 2, 3]) });
+    const r = await handle(rusak, store);
+    expect(r.status).toBe(400);
+    expect((await r.json()).error).toMatch(/gzip rusak/);
+    const polos = new Request('http://x/api/data/rules', { method: 'PUT', headers: { 'x-body-encoding': 'gzip' }, body: '[{"kode_sku":"1","satuan":"Pcs","moq":1}]' });
+    expect((await handle(polos, store)).status).toBe(200);
+  });
+
   it('PUT/GET/DELETE tanpa PIN; version naik', async () => {
     const store = memoryStore();
     const rows = [{ kode_sku: '124024', satuan: 'Pcs', moq: 6 }];

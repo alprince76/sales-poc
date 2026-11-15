@@ -13,11 +13,19 @@ const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-cont
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: HEADERS });
 const gagal = (status: number, pesan: string) => json(status, { ok: false, error: pesan });
 
+class BodyRusak extends Error {}
+
 async function bacaBody(req: Request): Promise<string> {
-  if (req.headers.get('x-body-encoding') === 'gzip' && req.body) {
-    return new Response(req.body.pipeThrough(new DecompressionStream('gzip'))).text();
+  if (req.headers.get('x-body-encoding') !== 'gzip') return req.text();
+  const buf = new Uint8Array(await req.arrayBuffer());
+  try {
+    return await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  } catch {
+    // Ternyata bukan gzip (mis. sudah didekompres proxy) → pakai apa adanya bila teks JSON.
+    const teks = new TextDecoder().decode(buf).trim();
+    if (teks.startsWith('[') || teks.startsWith('{')) return teks;
+    throw new BodyRusak('Body gzip rusak di jalan. Coba upload ulang.');
   }
-  return req.text();
 }
 
 const objek = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -58,8 +66,8 @@ export async function handle(req: Request, store: Store | null): Promise<Respons
   let body: unknown;
   try {
     body = JSON.parse(await bacaBody(req));
-  } catch {
-    return gagal(400, 'Body bukan JSON yang valid');
+  } catch (e) {
+    return gagal(400, e instanceof BodyRusak ? e.message : 'Body bukan JSON yang valid');
   }
 
   if (req.method === 'PATCH') {

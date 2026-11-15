@@ -111,6 +111,7 @@ SELECT tipe, jumlah, version, updated_at FROM dataset ORDER BY tipe;
 |---|---|
 | Banner kuning **"Mode lokal"** | API tidak terjangkau atau DB belum diset. Cek `/api/data/meta` (langkah 3). |
 | **"Gagal menyimpan, perubahan dibatalkan"** | Baris itu sudah diubah/dihapus admin lain. List dimuat ulang otomatis; ulangi edit. |
+| **"Body bukan JSON yang valid"** saat upload | Sudah diperbaiki di v11 (body gzip kini dikirim sebagai biner, dan bila ditolak otomatis diulang tanpa gzip). Pastikan versi terbaru sudah di-deploy. |
 | Upload file besar gagal | Batas body Netlify ±6 MB setelah gzip per jenis data. Pecah file atau kurangi kolom. |
 | Neon "compute suspended" | Normal di paket gratis (tidur saat idle). Request pertama sedikit lebih lambat. |
 

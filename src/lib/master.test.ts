@@ -16,8 +16,8 @@ describe('validasiBaris = aturan upload Excel', () => {
     expect(p.baris).toMatchObject({ status_aktif: false, harga: 1000 });
   });
   it('error: wajib kosong, moq < 1, bukan angka, tanggal salah', () => {
-    expect(validasiBaris('rules', { kode_sku: '1', satuan: 'Pcs', moq: '0' }).alasan).toContain('moq minimal 1');
-    expect(validasiBaris('rules', { kode_sku: '', satuan: 'Pcs', moq: 'x' }).alasan).toEqual(expect.arrayContaining(['kode_sku kosong', 'moq bukan angka bulat ("x")']));
+    expect(validasiBaris('rules', { kode_sku: '1', satuan: 'Pcs', moq: '0' }).alasan).toContain('MOQ minimal 1');
+    expect(validasiBaris('rules', { kode_sku: '', satuan: 'Pcs', moq: 'x' }).alasan).toEqual(expect.arrayContaining(['Kode SKU kosong', 'MOQ harus angka, bukan "x"']));
     expect(validasiBaris('pjp', { kode_salesman: '1', nama_salesman: 'A', tanggal_kunjungan: 'besok', kode_toko: 'T' }).baris).toBeNull();
   });
 });

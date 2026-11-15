@@ -7,6 +7,7 @@ import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { cekDuplikat, indeksJenis, JENIS_DATA, jenisById, type JenisData } from '../../lib/jenisData';
 import { SKEMA, validasiBaris, type TipeData } from '../../lib/parse';
+import { teksGagal } from '../../lib/pesan';
 import { formatTimestamp, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
 
@@ -131,8 +132,8 @@ function MasterJenis({ j }: { j: JenisData }) {
   /** Kirim ke DB di belakang; tampilan sudah berubah (optimistic). */
   const kirim = (indeks: number | null, baru: object | null, pesanOk: string) => {
     ubahBaris(j.tipe, indeks, baru).then(
-      (mode) => toast(mode === 'server' ? `${pesanOk} · tersimpan di database` : `${pesanOk} (lokal, server tidak terjangkau)`),
-      (e) => toast(`Gagal menyimpan, perubahan dibatalkan: ${e instanceof Error ? e.message : String(e)}`, 'error'),
+      (mode) => toast(mode === 'server' ? `${pesanOk} · tersimpan di database` : `${pesanOk} · hanya di browser ini (belum tersambung ke database)`),
+      (e) => toast(teksGagal(e, baru === null ? 'hapus' : 'simpan'), 'error'),
     );
   };
 

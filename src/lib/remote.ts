@@ -22,8 +22,14 @@ const BASE = ((import.meta.env?.VITE_API_BASE as string | undefined) ?? '/api/da
 async function bacaJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get('content-type') ?? '';
   // Tanpa function (vite dev / static) → SPA fallback mengembalikan index.html.
-  if (!ct.includes('application/json')) throw new RemoteError('Server data tidak tersedia', 0);
-  const body = (await res.json()) as { ok?: boolean; error?: string; data?: unknown };
+  // Bukan JSON: SPA fallback (200 → server data tidak ada) atau halaman error proxy (413/502/504 → simpan statusnya).
+  if (!ct.includes('application/json')) throw new RemoteError('Server data tidak tersedia', res.ok ? 0 : res.status);
+  let body: { ok?: boolean; error?: string; data?: unknown };
+  try {
+    body = (await res.json()) as typeof body;
+  } catch {
+    throw new RemoteError('Respons server tidak terbaca', res.ok ? 0 : res.status);
+  }
   if (!res.ok || body.ok === false) throw new RemoteError(body.error ?? `HTTP ${res.status}`, res.status);
   return (body.data ?? body) as T;
 }
@@ -58,18 +64,44 @@ async function gzip(text: string): Promise<Blob | null> {
 /** Ganti semua baris (upload / seed). baseVersion 0 = hanya bila belum ada di server (409 bila sudah). */
 export async function simpanData(tipe: TipeData, rows: unknown[], fetcher: typeof fetch = fetch, baseVersion?: number): Promise<InfoServer> {
   const text = JSON.stringify(rows);
+  const kirim = async (zipped: Blob | null) => {
+    // Body gzip = biner → wajib content-type biner; kalau 'application/json', proxy Netlify membacanya sebagai teks UTF-8 dan merusaknya.
+    const headers: Record<string, string> = { 'content-type': zipped ? 'application/octet-stream' : 'application/json' };
+    if (zipped) headers['x-body-encoding'] = 'gzip';
+    if (baseVersion !== undefined) headers['x-base-version'] = String(baseVersion);
+    let res: Response;
+    try {
+      res = await fetcher(`${BASE}/${tipe}`, { method: 'PUT', headers, body: zipped ?? text });
+    } catch {
+      throw new RemoteError('Server data tidak terjangkau', 0);
+    }
+    return bacaJson<InfoServer>(res);
+  };
   const zipped = await gzip(text);
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (zipped) headers['x-body-encoding'] = 'gzip';
-  if (baseVersion !== undefined) headers['x-base-version'] = String(baseVersion);
-  let res: Response;
-  try {
-    res = await fetcher(`${BASE}/${tipe}`, { method: 'PUT', headers, body: zipped ?? text });
-  } catch {
-    throw new RemoteError('Server data tidak terjangkau', 0);
+  const sekali = async () => {
+    if (!zipped) return kirim(null);
+    try {
+      return await kirim(zipped);
+    } catch (e) {
+      // Body gzip ditolak/rusak di jalan → ulangi sekali sebagai JSON polos.
+      if (e instanceof RemoteError && e.status === 400) return kirim(null);
+      throw e;
+    }
+  };
+  // Gangguan sementara (jaringan putus sesaat, DB baru bangun, timeout) → coba lagi otomatis. PUT aman diulang.
+  for (let coba = 0; ; coba++) {
+    try {
+      return await sekali();
+    } catch (e) {
+      if (coba >= JEDA_ULANG.length || !(e instanceof RemoteError && SEMENTARA(e.status))) throw e;
+      await new Promise((r) => setTimeout(r, JEDA_ULANG[coba]));
+    }
   }
-  return bacaJson<InfoServer>(res);
 }
+
+/** Jeda sebelum percobaan ulang simpan (ms). */
+export const JEDA_ULANG = [800, 2500];
+const SEMENTARA = (status: number) => status === 0 || status === 500 || status === 502 || status === 504;
 
 /** CRUD satu baris. `lama` = isi baris persis seperti yang dibaca dari server. */
 export type OpBaris = { op: 'tambah'; baru: unknown } | { op: 'ubah'; lama: unknown; baru: unknown } | { op: 'hapus'; lama: unknown };
