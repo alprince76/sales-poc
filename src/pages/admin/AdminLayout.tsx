@@ -1,7 +1,8 @@
-import { Boxes, ClipboardList, Database, HandCoins, LayoutDashboard, ListChecks, Menu, Route as RouteIcon, ShoppingCart, Smartphone, Store, X } from 'lucide-react';
+import { Boxes, ChevronDown, ClipboardList, Database, HandCoins, LayoutDashboard, ListChecks, Menu, Route as RouteIcon, ShoppingCart, Smartphone, Store, Table2, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { cn } from '../../components/ui';
+import { JENIS_DATA } from '../../lib/jenisData';
 import { formatTimestamp, latestUpdate, useData } from '../../state';
 
 const NAV = [
@@ -13,8 +14,51 @@ const NAV = [
   { to: '/admin/po', label: 'Purchase Order', icon: ShoppingCart },
   { to: '/admin/stok', label: 'Cek Stok', icon: Boxes },
   { to: '/admin/msl', label: 'MSL Compliance (MT)', icon: ListChecks },
-  { to: '/admin/data', label: 'Data & Upload', icon: Database },
 ];
+
+const navCls = ({ isActive }: { isActive: boolean }) =>
+  cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors', isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white');
+
+/** Menu "Master Data" dengan submenu per jenis data master. */
+function MenuMaster({ onNavigate }: { onNavigate?: () => void }) {
+  const loc = useLocation();
+  const aktif = loc.pathname.startsWith('/admin/master');
+  const [buka, setBuka] = useState(aktif);
+  useEffect(() => {
+    if (aktif) setBuka(true);
+  }, [aktif]);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={buka}
+        aria-controls="submenu-master"
+        onClick={() => setBuka((b) => !b)}
+        className={cn('flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors', aktif ? 'text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white')}
+      >
+        <Table2 size={18} />
+        <span className="flex-1 text-left">Master Data</span>
+        <ChevronDown size={16} className={cn('transition-transform', buka && 'rotate-180')} aria-hidden />
+      </button>
+      {buka && (
+        <div id="submenu-master" className="ml-5 mt-0.5 space-y-0.5 border-l border-white/10 pl-3">
+          {JENIS_DATA.map((j) => (
+            <NavLink
+              key={j.id}
+              to={`/admin/master/${j.id}`}
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                cn('block rounded-lg px-3 py-1.5 text-sm transition-colors', isActive ? 'bg-white/10 font-medium text-white' : 'text-slate-400 hover:bg-white/5 hover:text-white')
+              }
+            >
+              {j.menu}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { updatedAt, sumber } = useData();
@@ -30,21 +74,24 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <div className="text-xs text-slate-400">Web Admin · POC</div>
         </div>
       </div>
-      <nav className="flex-1 space-y-0.5 px-3" aria-label="Menu admin">
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3" aria-label="Menu admin">
         {NAV.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
             end={end}
             onClick={onNavigate}
-            className={({ isActive }) =>
-              cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors', isActive ? 'bg-white/10 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white')
-            }
+            className={navCls}
           >
             <Icon size={18} />
             {label}
           </NavLink>
         ))}
+        <MenuMaster onNavigate={onNavigate} />
+        <NavLink to="/admin/data" onClick={onNavigate} className={navCls}>
+          <Database size={18} />
+          Data &amp; Upload
+        </NavLink>
       </nav>
       <div className="space-y-3 border-t border-white/10 p-4">
         <div className="grid grid-cols-2 gap-2">

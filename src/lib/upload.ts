@@ -1,7 +1,7 @@
 /** Ringkasan & warning setelah upload (US-A1, US-A2). Pure. */
 import { normKode } from './billing';
 import type { TipeData } from './parse';
-import type { DataSet } from './types';
+import type { DataSet, Kunjungan, MasterToko } from './types';
 
 export interface RingkasanUpload {
   baris: { label: string; nilai: string }[];
@@ -145,4 +145,36 @@ export function ringkasUpload(
     ],
     warning,
   };
+}
+
+// ── Upload per channel (Store GT/MT, PJP GT/MT). Server tetap menyimpan per jenis data. ──
+export type ChannelUpload = 'GT' | 'MT';
+const chOf = (m: { channel?: string }): ChannelUpload => (String(m.channel ?? '').trim().toUpperCase() === 'MT' ? 'MT' : 'GT');
+
+/** Ganti hanya toko channel `channel`; toko channel lain dipertahankan. Semua baris baru dipaksa ke `channel`. */
+export function gabungMaster(lama: MasterToko[], baru: MasterToko[], channel: ChannelUpload): { rows: MasterToko[]; dipaksa: number } {
+  let dipaksa = 0;
+  const masuk = baru.map((m) => {
+    if (m.channel !== undefined && chOf(m) !== channel) dipaksa++;
+    return { ...m, channel };
+  });
+  return { rows: [...lama.filter((m) => chOf(m) !== channel), ...masuk], dipaksa };
+}
+
+/**
+ * Ganti hanya kunjungan segmen `channel` (ditentukan dari channel toko di Master; toko tak dikenal = GT).
+ * `diLuar` = baris baru yang tokonya di Master ber-channel lain / tidak ada.
+ */
+export function gabungPjp(lama: Kunjungan[], baru: Kunjungan[], channel: ChannelUpload, master: MasterToko[]): { rows: Kunjungan[]; diLuar: number } {
+  const ch = new Map(master.map((m) => [normKode(m.kode_toko), chOf(m)]));
+  const segmen = (k: Kunjungan) => ch.get(normKode(k.kode_toko)) ?? 'GT';
+  const diLuar = baru.filter((k) => ch.get(normKode(k.kode_toko)) !== channel).length;
+  return { rows: [...lama.filter((k) => segmen(k) !== channel), ...baru], diLuar };
+}
+
+/** Jumlah baris per segmen channel (untuk kartu upload). */
+export function hitungSegmen(data: DataSet, tipe: 'master' | 'pjp', channel: ChannelUpload): number {
+  if (tipe === 'master') return data.master.filter((m) => chOf(m) === channel).length;
+  const ch = new Map(data.master.map((m) => [normKode(m.kode_toko), chOf(m)]));
+  return data.pjp.filter((k) => (ch.get(normKode(k.kode_toko)) ?? 'GT') === channel).length;
 }

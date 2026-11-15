@@ -278,6 +278,17 @@ export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet): HasilParse<unkno
   return parseRows(tipe, header, rows);
 }
 
+/**
+ * Validasi satu baris (form edit Master) dengan aturan yang sama persis dengan upload Excel.
+ * `obj` berisi nilai mentah per nama kolom (string kosong = kosong).
+ */
+export function validasiBaris<T = Record<string, unknown>>(tipe: TipeData, obj: Record<string, unknown>): { baris: T | null; alasan: string[] } {
+  const kolom = SKEMA[tipe].kolom.map((k) => k.nama);
+  const h = parseRows<T>(tipe, kolom, [{ values: kolom.map((k) => obj[k] ?? null), excelRow: 1 }]);
+  if (h.valid.length) return { baris: h.valid[0], alasan: [] };
+  return { baris: null, alasan: h.error.flatMap((e) => e.alasan.split('; ')) };
+}
+
 /** Pilih sheet sesuai tipe (nama sheet cocok, case-insensitive) atau sheet pertama yang terlihat. */
 export function pilihSheet(wb: XLSX.WorkBook, tipe: TipeData): XLSX.WorkSheet | null {
   const target = SKEMA[tipe].sheet.toLowerCase();

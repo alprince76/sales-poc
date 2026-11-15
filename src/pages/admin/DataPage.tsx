@@ -1,39 +1,33 @@
-import { FileSpreadsheet, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { Cloud, CloudOff, DatabaseZap, FileSpreadsheet, KeyRound, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { Badge, Button, Card, useToast } from '../../components/ui';
+import { Badge, Button, Card, Input, useToast } from '../../components/ui';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
-import { bacaWorkbook, parseSheet, pilihSheet, SEMUA_TIPE, SKEMA, type HasilParse, type TipeData } from '../../lib/parse';
-import type { DataSet } from '../../lib/types';
-import { ringkasUpload, type RingkasanUpload } from '../../lib/upload';
-import { formatTimestamp, useData } from '../../state';
+import { bacaWorkbook, parseSheet, pilihSheet, SEMUA_TIPE, SKEMA, type HasilParse } from '../../lib/parse';
+import { mintaToken, RemoteError, setTokenAdmin, tokenAdmin } from '../../lib/remote';
+import type { DataSet, Kunjungan, MasterToko } from '../../lib/types';
+import { gabungMaster, gabungPjp, hitungSegmen, ringkasUpload, type RingkasanUpload } from '../../lib/upload';
+import { formatTimestamp, INTERVAL_SINKRON, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
+import { JENIS_DATA, type JenisData } from '../../lib/jenisData';
 
-const JUDUL: Record<TipeData, { nama: string; desc: string }> = {
-  master: { nama: 'Master Outlet', desc: 'Toko, salesman, channel GT/MT, bill address 1–4, cust group, TUNAI/KREDIT, TOP, limit, RPP13, blokir' },
-  rovi: { nama: 'DI AWAL', desc: 'AR awal: faktur, divisi (DNE/CBN/MRS), sisa tagihan per toko' },
-  pjp: { nama: 'PJP', desc: 'Jadwal kunjungan salesman per tanggal' },
-  produk: { nama: 'Master SKU', desc: 'Kode SAP, nama (new material), principal, sub brand, harga dasar, status aktif' },
-  rules: { nama: 'Order Rules', desc: 'Satuan, MOQ per item, isi per karton (CAR) — khusus GT' },
-  histori: { nama: 'Historical Sales', desc: 'Pembelian toko per SKU (suggested order, last order, MSL)' },
-  msl: { nama: 'MSL (Toko – SKU Listing)', desc: 'SKU yang wajib ada di toko MT (status_listed YES/NO)' },
-  price: { nama: 'Price List', desc: 'Harga per SKU per channel (GT/MT; kosong = semua). Menggantikan harga Master SKU' },
-};
+type Kartu = JenisData;
 
 export function DataPage() {
-  const { resetDummy, resetAktivitas, aktivitas, storageWarning } = useData();
+  const { resetDummy, resetAktivitas, aktivitas, storageWarning, koneksi, sinkron } = useData();
   const toast = useToast();
   const jumlahAkt = aktivitas.penagihan.length + aktivitas.po.length + aktivitas.stok.length + aktivitas.kunjungan.length;
+  const [cek, setCek] = useState(false);
   return (
     <AdminPage
       title="Data & Upload"
-      description="Upload XLSX/CSV per jenis data. Upload menggantikan seluruh data jenis tersebut."
+      description="Upload XLSX/CSV per jenis data. Setelah disimpan, data langsung dipakai aplikasi sales di semua perangkat."
       actions={
         <>
           <Button
             variant="secondary"
             onClick={() => {
-              if (window.confirm(`Hapus semua aktivitas SR (${jumlahAkt} catatan penagihan, stok, PO, kunjungan)?`)) {
+              if (window.confirm(`Hapus semua aktivitas SR (${jumlahAkt} catatan penagihan, stok, PO, kunjungan) di browser ini?`)) {
                 resetAktivitas();
                 toast('Aktivitas dihapus', 'info');
               }
@@ -43,8 +37,23 @@ export function DataPage() {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => {
-              if (window.confirm('Ganti semua data master dengan data dummy?')) void resetDummy().then(() => toast('Data dummy dimuat', 'info'));
+            onClick={async () => {
+              const server = koneksi === 'server';
+              const ok = window.confirm(
+                server
+                  ? 'Hapus SEMUA data upload di server dan kembali ke data dummy? Semua perangkat sales ikut kembali ke dummy.'
+                  : 'Ganti semua data master di browser ini dengan data dummy?',
+              );
+              if (!ok) return;
+              const token = server ? mintaToken() : undefined;
+              if (server && !token) return;
+              try {
+                await resetDummy(token);
+                toast('Data dummy dimuat', 'info');
+              } catch (e) {
+                if (e instanceof RemoteError && e.status === 401) setTokenAdmin('');
+                toast(`Gagal reset: ${e instanceof Error ? e.message : String(e)}`, 'error');
+              }
             }}
           >
             <RotateCcw size={16} /> Reset ke data dummy
@@ -52,24 +61,124 @@ export function DataPage() {
         </>
       }
     >
+      <StatusServer
+        cek={cek}
+        onCek={async () => {
+          setCek(true);
+          await sinkron();
+          setCek(false);
+        }}
+      />
       {storageWarning && (
         <div role="alert" className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Sebagian data upload terlalu besar untuk penyimpanan browser. Data tetap dipakai, tapi akan hilang saat halaman dimuat ulang.
+          Sebagian data terlalu besar untuk cache browser. Data tetap dipakai; saat dimuat ulang akan diunduh lagi dari server.
         </div>
       )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {SEMUA_TIPE.map((t) => (
-          <UploadCard key={t} tipe={t} />
+        {JENIS_DATA.map((k) => (
+          <UploadCard key={k.id} kartu={k} />
         ))}
       </div>
     </AdminPage>
   );
 }
 
+function StatusServer({ cek, onCek }: { cek: boolean; onCek: () => void }) {
+  const { koneksi, infoKoneksi } = useData();
+  const [pin, setPin] = useState(tokenAdmin);
+  if (koneksi === 'cek') return null;
+  if (koneksi === 'lokal')
+    return (
+      <div role="status" className="mb-4 flex items-start gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <CloudOff size={18} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="font-semibold">Mode lokal — upload hanya tersimpan di browser ini</p>
+          <p className="mt-0.5 text-amber-800">
+            Server data tidak terjangkau{infoKoneksi ? ` (${infoKoneksi})` : ''}. Perangkat sales tidak ikut ter-update sampai server aktif (lihat README: Neon + ADMIN_TOKEN di Netlify).
+          </p>
+        </div>
+      </div>
+    );
+  return (
+    <div role="status" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+      <Cloud size={18} className="shrink-0" />
+      <p className="min-w-0 flex-1">
+        <span className="font-semibold">Tersambung ke server.</span> Upload langsung tersinkron; aplikasi sales mengecek pembaruan tiap {INTERVAL_SINKRON / 1000} detik & saat dibuka.
+      </p>
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setTokenAdmin(pin.trim());
+        }}
+      >
+        <KeyRound size={16} className="text-emerald-700" aria-hidden />
+        <label className="sr-only" htmlFor="pin-admin">
+          PIN admin
+        </label>
+        <Input id="pin-admin" type="password" autoComplete="current-password" placeholder="PIN admin" value={pin} onChange={(e) => setPin(e.target.value)} onBlur={() => setTokenAdmin(pin.trim())} className="h-9 w-32" />
+      </form>
+      <Button size="sm" variant="secondary" onClick={onCek} disabled={cek}>
+        <RefreshCw size={14} className={cek ? 'animate-spin' : ''} /> Cek pembaruan
+      </Button>
+      <SeedServer />
+    </div>
+  );
+}
+
+/** Isi server dengan data yang sedang tampil (dummy/lokal) untuk jenis yang belum ada di server. */
+function SeedServer() {
+  const { raw, sumber, replace } = useData();
+  const toast = useToast();
+  const [jalan, setJalan] = useState(false);
+  const kosong = SEMUA_TIPE.filter((t) => sumber[t] !== 'server');
+  if (!kosong.length) return null;
+  const seed = async () => {
+    if (!window.confirm(`Isi server dengan data saat ini (dummy/lokal) untuk ${kosong.length} jenis data yang belum ada di server?\n\n${kosong.join(', ')}`)) return;
+    let token = mintaToken();
+    if (!token) return;
+    setJalan(true);
+    let ok = 0;
+    const gagal: string[] = [];
+    try {
+      for (const t of kosong) {
+        try {
+          await replace(t, raw[t], token, { cekVersi: true });
+          ok++;
+        } catch (e) {
+          if (e instanceof RemoteError && e.status === 401) {
+            token = mintaToken(true);
+            if (!token) break;
+            try {
+              await replace(t, raw[t], token, { cekVersi: true });
+              ok++;
+              continue;
+            } catch (e2) {
+              e = e2;
+            }
+          }
+          // 409 = sudah diisi admin lain → biarkan versi server.
+          if (!(e instanceof RemoteError && e.status === 409)) gagal.push(`${t}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    } finally {
+      setJalan(false);
+    }
+    toast(gagal.length ? `Seed ${ok} jenis, gagal: ${gagal.join('; ')}` : `Seed selesai: ${ok} jenis data tersimpan di server`, gagal.length ? 'error' : 'success');
+  };
+  return (
+    <Button size="sm" onClick={() => void seed()} disabled={jalan}>
+      <DatabaseZap size={14} /> {jalan ? 'Mengisi server…' : `Seed server (${kosong.length} jenis)`}
+    </Button>
+  );
+}
+
 type Pending = { file: string; hasil: HasilParse<unknown> };
 
-function UploadCard({ tipe }: { tipe: TipeData }) {
-  const { data, raw, updatedAt, sumber, replace } = useData();
+function UploadCard({ kartu }: { kartu: Kartu }) {
+  const { tipe, channel } = kartu;
+  const { data, raw, updatedAt, sumber, versi, replace } = useData();
+  const [menyimpan, setMenyimpan] = useState(false);
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -108,13 +217,45 @@ function UploadCard({ tipe }: { tipe: TipeData }) {
     }
   };
 
-  const simpan = () => {
+  const simpan = async () => {
     if (!pending) return;
-    const rows = pending.hasil.valid as DataSet[typeof tipe];
-    replace(tipe, rows);
-    setHasil(ringkasUpload(tipe, { ...raw, [tipe]: rows }, { rupiah: formatRupiah, tanggal: formatTanggal }));
-    toast(`${JUDUL[tipe].nama} diperbarui`);
-    reset();
+    const valid = pending.hasil.valid;
+    let rows = valid as DataSet[typeof tipe];
+    const catatan: string[] = [];
+    if (tipe === 'master' && channel) {
+      const g = gabungMaster(raw.master, valid as MasterToko[], channel);
+      rows = g.rows as DataSet[typeof tipe];
+      if (g.dipaksa) catatan.push(`${g.dipaksa} baris ber-channel lain disimpan sebagai ${channel}.`);
+    } else if (tipe === 'pjp' && channel) {
+      const g = gabungPjp(raw.pjp, valid as Kunjungan[], channel, raw.master);
+      rows = g.rows as DataSet[typeof tipe];
+      if (g.diLuar) catatan.push(`${g.diLuar} kunjungan ke toko yang bukan Store ${channel} di Master (tetap disimpan).`);
+    }
+    let token = tokenAdmin();
+    setMenyimpan(true);
+    try {
+      for (let coba = 0; ; coba++) {
+        try {
+          const mode = await replace(tipe, rows, token);
+          const r = ringkasUpload(tipe, { ...raw, [tipe]: rows }, { rupiah: formatRupiah, tanggal: formatTanggal });
+          setHasil({ ...r, warning: [...catatan, ...r.warning, ...(mode === 'lokal' ? ['Mode lokal: data hanya tersimpan di browser ini, perangkat sales belum ter-update.'] : [])] });
+          toast(mode === 'server' ? `${kartu.nama} disimpan ke server` : `${kartu.nama} disimpan (lokal)`);
+          reset();
+          return;
+        } catch (e) {
+          if (e instanceof RemoteError && e.status === 401 && coba < 2) {
+            token = mintaToken(!!token);
+            if (token) continue;
+            setTolak('Butuh PIN admin untuk menyimpan ke server.');
+            return;
+          }
+          setTolak(`Gagal menyimpan ke server: ${e instanceof Error ? e.message : String(e)}. Data belum berubah.`);
+          return;
+        }
+      }
+    } finally {
+      setMenyimpan(false);
+    }
   };
 
   const wajib = SKEMA[tipe].kolom.filter((k) => k.wajib).map((k) => k.nama);
@@ -129,15 +270,17 @@ function UploadCard({ tipe }: { tipe: TipeData }) {
             <FileSpreadsheet size={18} />
           </span>
           <div>
-            <h2 className="font-semibold text-slate-900">{JUDUL[tipe].nama}</h2>
-            <p className="text-xs text-slate-500">{JUDUL[tipe].desc}</p>
+            <h2 className="font-semibold text-slate-900">{kartu.nama}</h2>
+            <p className="text-xs text-slate-500">{kartu.desc}</p>
           </div>
         </div>
-        <Badge tone={sumber[tipe] === 'upload' ? 'green' : 'gray'}>{sumber[tipe] === 'upload' ? 'Upload' : 'Dummy'}</Badge>
+        <Badge tone={sumber[tipe] === 'server' ? 'green' : sumber[tipe] === 'lokal' ? 'orange' : 'gray'}>
+          {sumber[tipe] === 'server' ? `Server · v${versi[tipe]}` : sumber[tipe] === 'lokal' ? 'Lokal' : 'Dummy'}
+        </Badge>
       </div>
       <div className="mt-3 flex items-baseline justify-between text-xs text-slate-500">
         <span>
-          <span className="font-semibold tabular text-slate-800">{data[tipe].length.toLocaleString('id-ID')}</span> baris
+          <span className="font-semibold tabular text-slate-800">{(tipe === 'master' || tipe === 'pjp') && channel ? hitungSegmen(data, tipe, channel).toLocaleString('id-ID') : data[tipe].length.toLocaleString('id-ID')}</span> baris
         </span>
         <span>Diperbarui {formatTimestamp(updatedAt[tipe])}</span>
       </div>
@@ -217,10 +360,10 @@ function UploadCard({ tipe }: { tipe: TipeData }) {
             </div>
           )}
           <div className="mt-3 flex gap-2">
-            <Button size="sm" onClick={simpan} disabled={!pending.hasil.valid.length}>
-              {errCount ? 'Simpan baris valid saja' : 'Simpan & ganti data'}
+            <Button size="sm" onClick={() => void simpan()} disabled={!pending.hasil.valid.length || menyimpan}>
+              {menyimpan ? 'Menyimpan…' : errCount ? 'Simpan baris valid saja' : channel ? `Simpan & ganti data ${channel}` : 'Simpan & ganti data'}
             </Button>
-            <Button size="sm" variant="secondary" onClick={reset}>
+            <Button size="sm" variant="secondary" onClick={reset} disabled={menyimpan}>
               Batal
             </Button>
           </div>

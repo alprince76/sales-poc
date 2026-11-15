@@ -4,6 +4,7 @@ import { applyPenagihan } from './lib/collection';
 import { indexMsl, indexTransaksi, type IndexTransaksi } from './lib/msl';
 import { gabungProduk, type ProdukLengkap } from './lib/order';
 import { bacaDataSet, bacaWorkbook, SEMUA_TIPE, type TipeData } from './lib/parse';
+import { ambilData, ambilMeta, bandingVersi, hapusData, RemoteError, simpanData, type MetaServer } from './lib/remote';
 import type {
   Aktivitas,
   CekStok,
@@ -28,15 +29,37 @@ export type Channel = 'GT' | 'MT';
 /** kode_toko → (kode_sku → qty). */
 export type KeranjangMT = Record<string, Record<string, number>>;
 
-type Sumber = 'dummy' | 'upload';
+/** dummy = file contoh · server = hasil upload admin di server (tersinkron) · lokal = upload hanya di browser ini. */
+export type Sumber = 'dummy' | 'server' | 'lokal';
+/** Status koneksi ke server data (Netlify Function + DB). */
+export type Koneksi = 'cek' | 'server' | 'lokal';
 interface Meta {
   sumber: Record<TipeData, Sumber>;
   updatedAt: Record<TipeData, string | null>;
+  version: Record<TipeData, number | null>;
 }
+/** Interval cek pembaruan data dari server (ms). */
+export const INTERVAL_SINKRON = 60_000;
 
 const semua = <V,>(v: V) => Object.fromEntries(SEMUA_TIPE.map((t) => [t, v])) as Record<TipeData, V>;
 const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [], price: [] };
 const EMPTY_AKT: Aktivitas = { penagihan: [], stok: [], po: [], kunjungan: [] };
+const metaKosong = (): Meta => ({ sumber: semua<Sumber>('dummy'), updatedAt: semua<string | null>(null), version: semua<number | null>(null) });
+const salinMeta = (m: Meta): Meta => ({ sumber: { ...m.sumber }, updatedAt: { ...m.updatedAt }, version: { ...m.version } });
+/** Meta lama (v2: sumber 'upload') → v3. */
+function bacaMeta(): Meta {
+  const m = lsGet<Partial<Meta>>(KEY_META);
+  const base = metaKosong();
+  if (!m) return base;
+  for (const t of SEMUA_TIPE) {
+    const s = m.sumber?.[t] as string | undefined;
+    base.sumber[t] = s === 'upload' ? 'lokal' : s === 'server' || s === 'lokal' ? s : 'dummy';
+    base.updatedAt[t] = m.updatedAt?.[t] ?? null;
+    base.version[t] = m.version?.[t] ?? null;
+  }
+  return base;
+}
+const pesan = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function lsGet<T>(key: string): T | null {
   try {
@@ -86,6 +109,15 @@ interface Ctx {
   data: DataSet;
   updatedAt: Record<TipeData, string | null>;
   sumber: Record<TipeData, Sumber>;
+  /** Versi data di server per jenis (null = bukan dari server). */
+  versi: Record<TipeData, number | null>;
+  koneksi: Koneksi;
+  /** Alasan mode lokal (server tidak terjangkau / DB belum diset). */
+  infoKoneksi: string | null;
+  /** Diisi saat data berubah karena upload admin di perangkat lain (dipakai untuk toast). */
+  pembaruan: { id: number; tipe: TipeData[] } | null;
+  /** Cek pembaruan dari server sekarang. */
+  sinkron: () => Promise<void>;
   /** True bila sebagian data upload tidak muat di localStorage (hanya di memory). */
   storageWarning: boolean;
   fakturIdx: FakturIndex;
@@ -105,8 +137,11 @@ interface Ctx {
   setQtyKeranjang: (toko: string, sku: string, qty: number) => void;
   kosongkanKeranjang: (toko: string) => void;
 
-  replace: <K extends TipeData>(tipe: K, rows: DataSet[K]) => void;
-  resetDummy: () => Promise<void>;
+  /** Simpan data upload. Mode server: ke server dulu (gagal → throw). Mode lokal: hanya browser ini. */
+  /** cekVersi: gagal (RemoteError 409) bila data di server sudah diubah admin lain sejak dimuat. */
+  replace: <K extends TipeData>(tipe: K, rows: DataSet[K], token?: string, opsi?: { cekVersi?: boolean }) => Promise<'server' | 'lokal'>;
+  /** Kembali ke data dummy. Dengan token (mode server): data upload di server juga dihapus. */
+  resetDummy: (token?: string) => Promise<void>;
   resetAktivitas: () => void;
   tambahPenagihan: (p: Penagihan) => void;
   simpanStok: (s: CekStok) => void;
@@ -119,67 +154,219 @@ const DataContext = createContext<Ctx | null>(null);
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const [raw, setRaw] = useState<DataSet>(EMPTY_DATA);
-  const [meta, setMeta] = useState<Meta>(() => lsGet<Meta>(KEY_META) ?? { sumber: semua<Sumber>('dummy'), updatedAt: semua<string | null>(null) });
+  const [meta, setMeta] = useState<Meta>(bacaMeta);
   const [aktivitas, setAktivitas] = useState<Aktivitas>(() => ({ ...EMPTY_AKT, ...(lsGet<Aktivitas>(KEY_AKT) ?? {}) }));
   const [keranjang, setKeranjang] = useState<KeranjangMT>(() => lsGet<KeranjangMT>(KEY_KERANJANG) ?? {});
   const [status, setStatus] = useState<Ctx['status']>('loading');
   const [error, setError] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState(false);
+  const [koneksi, setKoneksi] = useState<Koneksi>('cek');
+  const [infoKoneksi, setInfoKoneksi] = useState<string | null>(null);
+  const [pembaruan, setPembaruan] = useState<Ctx['pembaruan']>(null);
   const loaded = useRef(false);
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
+  const koneksiRef = useRef(koneksi);
+  koneksiRef.current = koneksi;
+  const statusRef = useRef(status);
+  statusRef.current = status;
 
-  // Muat awal: data upload dari localStorage, sisanya dari file dummy.
-  const load = useCallback(async (m: Meta, forceDummy: boolean) => {
-    setStatus('loading');
-    setError(null);
+  const simpanMeta = useCallback((nm: Meta) => {
+    metaRef.current = nm;
+    setMeta(nm);
+    lsSet(KEY_META, nm);
+  }, []);
+  const cache = useCallback((t: TipeData, rows: unknown[]) => {
+    if (!lsSet(KEY_DATA(t), rows)) setStorageWarning(true);
+  }, []);
+
+  /** Meta server, atau null (mode lokal) + catat alasannya. */
+  const cekServer = useCallback(async (): Promise<MetaServer | null> => {
     try {
-      const next: DataSet = { ...EMPTY_DATA };
-      const butuhDummy: TipeData[] = [];
-      for (const t of SEMUA_TIPE) {
-        const stored = !forceDummy && m.sumber[t] === 'upload' ? lsGet<unknown[]>(KEY_DATA(t)) : null;
-        if (stored) (next as Record<TipeData, unknown[]>)[t] = stored;
-        else butuhDummy.push(t);
-      }
-      const now = new Date().toISOString();
-      const nm: Meta = { sumber: { ...m.sumber }, updatedAt: { ...m.updatedAt } };
-      if (butuhDummy.length) {
-        const d = await fetchDummy();
-        for (const t of butuhDummy) {
-          (next as Record<TipeData, unknown[]>)[t] = d[t];
-          nm.sumber[t] = 'dummy';
-          if (forceDummy || !nm.updatedAt[t] || m.sumber[t] === 'upload') nm.updatedAt[t] = now;
-          lsDel(KEY_DATA(t));
-        }
-      }
-      setRaw(next);
-      setMeta(nm);
-      lsSet(KEY_META, nm);
-      setStatus('ready');
+      const srv = await ambilMeta();
+      setKoneksi('server');
+      setInfoKoneksi(null);
+      return srv;
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setStatus('error');
+      setKoneksi('lokal');
+      setInfoKoneksi(pesan(e));
+      return null;
     }
   }, []);
+
+  // Muat awal: data server (cache lokal bila versi sama) → upload lokal → file dummy.
+  const load = useCallback(
+    async (m: Meta) => {
+      setStatus('loading');
+      setError(null);
+      try {
+        const srv = await cekServer();
+        const next: DataSet = { ...EMPTY_DATA };
+        const nm = salinMeta(m);
+        const butuhDummy: TipeData[] = [];
+        await Promise.all(
+          SEMUA_TIPE.map(async (t) => {
+            const s = srv?.[t];
+            if (s) {
+              let rows = m.sumber[t] === 'server' && m.version[t] === s.version ? lsGet<unknown[]>(KEY_DATA(t)) : null;
+              if (!rows) {
+                try {
+                  rows = await ambilData(t);
+                  cache(t, rows);
+                } catch {
+                  rows = null;
+                }
+              }
+              if (rows) {
+                (next as Record<TipeData, unknown[]>)[t] = rows;
+                nm.sumber[t] = 'server';
+                nm.version[t] = s.version;
+                nm.updatedAt[t] = s.updatedAt;
+                return;
+              }
+            }
+            // Tidak ada di server: pakai upload lokal (atau cache server saat offline).
+            const pakaiCache = m.sumber[t] === 'lokal' || (!srv && m.sumber[t] === 'server');
+            const lokal = pakaiCache ? lsGet<unknown[]>(KEY_DATA(t)) : null;
+            if (lokal) (next as Record<TipeData, unknown[]>)[t] = lokal;
+            else butuhDummy.push(t);
+          }),
+        );
+        if (butuhDummy.length) {
+          const now = new Date().toISOString();
+          const d = await fetchDummy();
+          for (const t of butuhDummy) {
+            (next as Record<TipeData, unknown[]>)[t] = d[t];
+            if (nm.sumber[t] !== 'dummy' || !nm.updatedAt[t]) nm.updatedAt[t] = now;
+            nm.sumber[t] = 'dummy';
+            nm.version[t] = null;
+            lsDel(KEY_DATA(t));
+          }
+        }
+        setRaw(next);
+        simpanMeta(nm);
+        setStatus('ready');
+      } catch (e) {
+        setError(pesan(e));
+        setStatus('error');
+      }
+    },
+    [cekServer, cache, simpanMeta],
+  );
 
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-    void load(meta, false);
-  }, [load, meta]);
-
-  const resetDummy = useCallback(async () => {
-    setStorageWarning(false);
-    await load({ sumber: semua<Sumber>('dummy'), updatedAt: semua<string | null>(null) }, true);
+    void load(metaRef.current);
   }, [load]);
 
-  const replace = useCallback<Ctx['replace']>((tipe, rows) => {
-    setRaw((prev) => ({ ...prev, [tipe]: rows }));
-    setMeta((prev) => {
-      const nm: Meta = { sumber: { ...prev.sumber, [tipe]: 'upload' }, updatedAt: { ...prev.updatedAt, [tipe]: new Date().toISOString() } };
-      lsSet(KEY_META, nm);
-      return nm;
-    });
-    if (!lsSet(KEY_DATA(tipe), rows)) setStorageWarning(true);
-  }, []);
+  // Auto-update: cek versi di server tiap INTERVAL_SINKRON + saat tab/aplikasi kembali aktif.
+  const sinkronJalan = useRef(false);
+  const sinkron = useCallback(async () => {
+    if (statusRef.current !== 'ready' || sinkronJalan.current) return;
+    sinkronJalan.current = true;
+    try {
+      const srv = await cekServer();
+      if (!srv) return;
+      const m = metaRef.current;
+      const { unduh, hilang } = bandingVersi(m.version, m.sumber, srv, SEMUA_TIPE);
+      if (!unduh.length && !hilang.length) return;
+      const patch: Partial<Record<TipeData, unknown[]>> = {};
+      const nm = salinMeta(m);
+      await Promise.all(
+        unduh.map(async (t) => {
+          const rows = await ambilData(t);
+          patch[t] = rows;
+          cache(t, rows);
+          nm.sumber[t] = 'server';
+          nm.version[t] = srv[t]!.version;
+          nm.updatedAt[t] = srv[t]!.updatedAt;
+        }),
+      );
+      if (hilang.length) {
+        const d = await fetchDummy();
+        const now = new Date().toISOString();
+        for (const t of hilang) {
+          patch[t] = d[t];
+          nm.sumber[t] = 'dummy';
+          nm.version[t] = null;
+          nm.updatedAt[t] = now;
+          lsDel(KEY_DATA(t));
+        }
+      }
+      setRaw((prev) => ({ ...prev, ...patch }) as DataSet);
+      simpanMeta(nm);
+      setPembaruan({ id: Date.now(), tipe: [...unduh, ...hilang] });
+    } catch {
+      /* coba lagi di siklus berikutnya */
+    } finally {
+      sinkronJalan.current = false;
+    }
+  }, [cekServer, cache, simpanMeta]);
+
+  const sinkronRef = useRef(sinkron);
+  sinkronRef.current = sinkron;
+
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const id = window.setInterval(() => void sinkron(), INTERVAL_SINKRON);
+    const aktif = () => {
+      if (document.visibilityState === 'visible') void sinkron();
+    };
+    document.addEventListener('visibilitychange', aktif);
+    window.addEventListener('focus', aktif);
+    window.addEventListener('online', aktif);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', aktif);
+      window.removeEventListener('focus', aktif);
+      window.removeEventListener('online', aktif);
+    };
+  }, [status, sinkron]);
+
+  const resetDummy = useCallback<Ctx['resetDummy']>(
+    async (token) => {
+      setStorageWarning(false);
+      if (token && koneksiRef.current === 'server') {
+        const srv = await ambilMeta();
+        await Promise.all((Object.keys(srv) as TipeData[]).map((t) => hapusData(t, token)));
+      }
+      for (const t of SEMUA_TIPE) lsDel(KEY_DATA(t));
+      await load(metaKosong());
+    },
+    [load],
+  );
+
+  const replace = useCallback<Ctx['replace']>(
+    async (tipe, rows, token, opsi) => {
+      const nm = salinMeta(metaRef.current);
+      let mode: 'server' | 'lokal' = 'lokal';
+      if (koneksiRef.current === 'server') {
+        const m = metaRef.current;
+        const base = opsi?.cekVersi ? (m.sumber[tipe] === 'server' ? (m.version[tipe] ?? 0) : 0) : undefined;
+        let info;
+        try {
+          info = await simpanData(tipe, rows, token ?? '', fetch, base);
+        } catch (e) {
+          if (e instanceof RemoteError && e.status === 409) void sinkronRef.current();
+          throw e;
+        }
+        mode = 'server';
+        nm.sumber[tipe] = 'server';
+        nm.version[tipe] = info.version;
+        nm.updatedAt[tipe] = info.updatedAt;
+      } else {
+        nm.sumber[tipe] = 'lokal';
+        nm.version[tipe] = null;
+        nm.updatedAt[tipe] = new Date().toISOString();
+      }
+      setRaw((prev) => ({ ...prev, [tipe]: rows }));
+      simpanMeta(nm);
+      cache(tipe, rows);
+      return mode;
+    },
+    [cache, simpanMeta],
+  );
 
   const updateAkt = useCallback((f: (a: Aktivitas) => Aktivitas) => {
     setAktivitas((prev) => {
@@ -287,6 +474,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     kosongkanKeranjang,
     updatedAt: meta.updatedAt,
     sumber: meta.sumber,
+    versi: meta.version,
+    koneksi,
+    infoKoneksi,
+    pembaruan,
+    sinkron,
     storageWarning,
     aktivitas,
     replace,

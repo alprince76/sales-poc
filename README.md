@@ -100,6 +100,41 @@ Sheet dipilih berdasarkan nama (lihat kolom Sheet) atau sheet pertama, jadi `Dum
   - **Tetap dummy:** area (diturunkan dari alamat), 2 toko blokir demo, Histori Sales (≈ RPP13), harga, kategori, channel, isi karton, dan 4 SKU non-aktif demo produk, Price List, serta seluruh data MT (SLSM01/02, MT00001–MT00060, MSL).
   - Sheet `Contoh_Output_Sales` dan `Contoh_Detail_Toko` (Yudha, 9 Nov) dihitung ulang dan menjadi acuan test regresi.
 
+## Sinkron data upload ke semua perangkat (server)
+
+Upload admin di **Data & Upload** disimpan ke server dan otomatis dipakai aplikasi sales di semua HP. Aplikasi sales mengecek pembaruan **tiap 60 detik** dan setiap kali aplikasi dibuka atau kembali aktif, lalu menampilkan toast "Data diperbarui admin".
+
+- **Backend:** Netlify Function [netlify/functions/data.mts](netlify/functions/data.mts) dengan path `/api/data/*`, ditambah **Neon Postgres** (free tier). Satu baris tabel `dataset` menyimpan satu jenis data beserta versinya.
+- **Kartu upload:**
+  - Data Store GT
+  - Data Store MT
+  - Data PJP Sales GT
+  - Data PJP Sales MT
+  - Data Tagihan (ROVI)
+  - Data SKU
+  - Data MOQ GT
+  - Data SKU Listed per Store MT
+  - Data Historical Order Outlet GT
+  - Price List
+
+  Upload Store/PJP **MT hanya mengganti data MT**; data GT tetap utuh, dan sebaliknya.
+- **Tanpa server** (DB belum diset, atau `npm run dev` biasa): muncul banner **Mode lokal**. Upload hanya tersimpan di browser itu, dan aplikasi tetap jalan dari cache atau data dummy.
+
+**Setup database, deploy, dan seed: lihat [docs/SETUP_NEON.md](docs/SETUP_NEON.md).** Ringkasnya:
+1. Buat project gratis di neon.tech (region Singapore), lalu salin connection string. Cara lain: Netlify Extensions → Neon.
+2. Env Netlify: `DATABASE_URL` dan `ADMIN_TOKEN` (PIN admin). Deploy ulang.
+3. Seed data awal agar tidak kosong, lewat tombol **Seed server** di Admin → Data & Upload, atau `npm run seed` (langsung ke Neon), atau `npm run seed -- --api=https://<site> --token=<PIN>`. Default hanya mengisi jenis data yang belum ada; `--force` untuk menimpa.
+
+**Master Data** (menu admin, dengan submenu Store GT/MT, PJP GT/MT, Tagihan, SKU, MOQ GT, SKU Listed MT, Historical Order GT, Price List):
+- list dengan pencarian dan halaman 50 baris;
+- **tambah, edit, atau hapus per baris**, dengan validasi sama persis dengan upload Excel serta cek kode duplikat;
+- tersimpan ke server dan HP sales ikut ter-update;
+- bila dua admin mengedit bersamaan, simpanan yang kalah ditolak ("sudah diubah admin lain") lalu list dimuat ulang.
+
+Dev lokal dengan API: `npx netlify dev`. Pakai `STORE=memory` bila tanpa DB; lihat `.env.example`.
+
+Batas POC: body upload maksimal ±6 MB setelah gzip per jenis data. Sinkron memakai polling, bukan push realtime. Aktivitas SR (kunjungan, PO, penagihan) masih tersimpan di HP masing-masing.
+
 ## Aturan bisnis
 
 Semua logika berupa pure function di `src/lib/` dan diuji:
@@ -128,5 +163,10 @@ src/pages/sales/     layout bottom nav, Rute/Tagihan/Toko/Aktivitas, VisitPage (
 src/pages/mt/        aplikasi MT: Rute/Toko/Order/Aktivitas, toko → divisi → SKU list → PO
 src/pages/admin/     layout sidebar/drawer, Dashboard, Data, Rute, Toko, Penagihan, PO, Stok, MSL
 src/pages/Home.tsx   pemilih aplikasi (/)
+netlify/functions/data.mts  API sinkron data master (Neon Postgres)
+netlify/lib/            handler + store (Neon / in-memory) + pemilihan seed
+scripts/seed.ts         seed data awal ke Neon / API (npm run seed)
+db/schema.sql           skema tabel dataset (opsional, dibuat otomatis)
+docs/SETUP_NEON.md      langkah setup Neon + Netlify + seed
 scripts/gen-dummy.mjs   generator data dummy (GT dari docs/source/*.md)
 ```

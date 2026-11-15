@@ -1,3 +1,9 @@
 node_modules
 dist
 .DS_Store
+
+# rahasia lokal (DATABASE_URL, ADMIN_TOKEN)
+.env
+.env.*
+!.env.example
+.netlify

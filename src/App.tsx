@@ -4,6 +4,7 @@ import { AdminLayout } from './pages/admin/AdminLayout';
 import { PenagihanPage, POPage, RuteAdminPage, StokPage, TokoFakturPage } from './pages/admin/AdminPages';
 import { DashboardGTPage, DashboardMTPage } from './pages/admin/DashboardPage';
 import { DataPage } from './pages/admin/DataPage';
+import { MasterPage } from './pages/admin/MasterPage';
 import { SalesLayout } from './pages/sales/SalesLayout';
 import { AktivitasPage, RutePage, TagihanPage } from './pages/sales/SalesPages';
 import { SalesSessionProvider } from './pages/sales/session';
@@ -87,6 +88,8 @@ export function App() {
         <Route path="stok" element={<StokPage />} />
         <Route path="msl" element={<MslPage />} />
         <Route path="data" element={<DataPage />} />
+        <Route path="master" element={<MasterPage />} />
+        <Route path="master/:jenis" element={<MasterPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
