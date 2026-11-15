@@ -2,7 +2,7 @@
  * Seed data master ke server (Neon Postgres) dari docs/Dummy_ROVI_PJP.xlsx (data asli MD + SKU NEFOKAM).
  *
  *   npm run seed                                  # langsung ke DB (DATABASE_URL / NETLIFY_DATABASE_URL, boleh dari .env)
- *   npm run seed -- --api=https://xxx.netlify.app --token=PIN   # lewat API site yang sudah deploy
+ *   npm run seed -- --api=https://xxx.netlify.app               # lewat API site yang sudah deploy
  * Opsi: --only=rules,produk  --force (timpa yang sudah ada)  --file=path.xlsx
  * Default: hanya mengisi jenis yang BELUM ada di server (data upload admin tidak tertimpa).
  */
@@ -29,12 +29,10 @@ async function main() {
   const data = Object.fromEntries(Object.entries(p).map(([t, h]) => [t, h.valid])) as unknown as DataSet;
 
   const api = arg('api')?.replace(/\/+$/, '');
-  const token = arg('token') ?? process.env.ADMIN_TOKEN ?? '';
   let ada: string[];
   let simpan: (t: Tipe, rows: unknown[]) => Promise<{ version: number }>;
 
   if (api) {
-    if (!token) throw new Error('Mode --api butuh --token=PIN (atau env ADMIN_TOKEN).');
     const meta = await fetch(`${api}/api/data/meta`);
     const body = (await meta.json().catch(() => null)) as { ok?: boolean; data?: Record<string, unknown>; error?: string } | null;
     if (!meta.ok || !body?.ok) throw new Error(`API meta gagal (${meta.status}): ${body?.error ?? 'bukan JSON — cek URL & deploy function'}`);
@@ -42,7 +40,7 @@ async function main() {
     simpan = async (t, rows) => {
       const r = await fetch(`${api}/api/data/${t}`, {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', 'x-admin-token': token, ...(flag('force') ? {} : { 'x-base-version': '0' }) },
+        headers: { 'content-type': 'application/json', ...(flag('force') ? {} : { 'x-base-version': '0' }) },
         body: JSON.stringify(rows),
       });
       const b = (await r.json().catch(() => ({}))) as { ok?: boolean; data?: { version: number }; error?: string };
@@ -51,7 +49,7 @@ async function main() {
     };
   } else {
     const url = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL;
-    if (!url) throw new Error('Set DATABASE_URL (connection string Neon) di env / .env, atau pakai --api=… --token=…');
+    if (!url) throw new Error('Set DATABASE_URL (connection string Neon) di env / .env, atau pakai --api=https://<site>');
     const store = neonStore(url);
     ada = Object.keys(await store.meta());
     simpan = (t, rows) => store.simpan(t, JSON.stringify(rows), rows.length, flag('force') ? undefined : 0);

@@ -4,7 +4,8 @@ import { applyPenagihan } from './lib/collection';
 import { indexMsl, indexTransaksi, type IndexTransaksi } from './lib/msl';
 import { gabungProduk, type ProdukLengkap } from './lib/order';
 import { bacaDataSet, bacaWorkbook, SEMUA_TIPE, type TipeData } from './lib/parse';
-import { ambilData, ambilMeta, bandingVersi, hapusData, RemoteError, simpanData, type MetaServer } from './lib/remote';
+import { ambilData, ambilMeta, bandingVersi, hapusData, RemoteError, simpanData, ubahBaris as ubahBarisServer, type MetaServer, type OpBaris } from './lib/remote';
+import { terapkan } from './lib/jenisData';
 import type {
   Aktivitas,
   CekStok,
@@ -137,11 +138,20 @@ interface Ctx {
   setQtyKeranjang: (toko: string, sku: string, qty: number) => void;
   kosongkanKeranjang: (toko: string) => void;
 
-  /** Simpan data upload. Mode server: ke server dulu (gagal → throw). Mode lokal: hanya browser ini. */
-  /** cekVersi: gagal (RemoteError 409) bila data di server sudah diubah admin lain sejak dimuat. */
-  replace: <K extends TipeData>(tipe: K, rows: DataSet[K], token?: string, opsi?: { cekVersi?: boolean }) => Promise<'server' | 'lokal'>;
-  /** Kembali ke data dummy. Dengan token (mode server): data upload di server juga dihapus. */
-  resetDummy: (token?: string) => Promise<void>;
+  /**
+   * Ganti semua baris satu jenis data (upload Excel / seed). Mode server: ke DB dulu (gagal → throw).
+   * hanyaBilaKosong: hanya bila jenis ini belum ada di DB (seed; RemoteError 409 bila sudah ada).
+   */
+  replace: <K extends TipeData>(tipe: K, rows: DataSet[K], opsi?: { hanyaBilaKosong?: boolean }) => Promise<'server' | 'lokal'>;
+  /**
+   * CRUD satu baris (Master Data): `indeks` di raw[tipe] (null = tambah), `baru` null = hapus.
+   * Optimistic: tampilan langsung berubah; dikirim ke DB berurutan di belakang; gagal → dibatalkan & throw.
+   */
+  ubahBaris: (tipe: TipeData, indeks: number | null, baru: object | null) => Promise<'server' | 'lokal'>;
+  /** Jumlah perubahan yang sedang dikirim ke DB. */
+  menyimpan: number;
+  /** Kembali ke data dummy. Mode server: semua data di DB dihapus. */
+  resetDummy: () => Promise<void>;
   resetAktivitas: () => void;
   tambahPenagihan: (p: Penagihan) => void;
   simpanStok: (s: CekStok) => void;
@@ -262,8 +272,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   // Auto-update: cek versi di server tiap INTERVAL_SINKRON + saat tab/aplikasi kembali aktif.
   const sinkronJalan = useRef(false);
+  const perluSinkron = useRef(false);
   const sinkron = useCallback(async () => {
-    if (statusRef.current !== 'ready' || sinkronJalan.current) return;
+    if (statusRef.current !== 'ready' || sinkronJalan.current || pendingRef.current > 0) return;
     sinkronJalan.current = true;
     try {
       const srv = await cekServer();
@@ -325,11 +336,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [status, sinkron]);
 
   const resetDummy = useCallback<Ctx['resetDummy']>(
-    async (token) => {
+    async () => {
       setStorageWarning(false);
-      if (token && koneksiRef.current === 'server') {
+      if (koneksiRef.current === 'server') {
         const srv = await ambilMeta();
-        await Promise.all((Object.keys(srv) as TipeData[]).map((t) => hapusData(t, token)));
+        await Promise.all((Object.keys(srv) as TipeData[]).map((t) => hapusData(t)));
       }
       for (const t of SEMUA_TIPE) lsDel(KEY_DATA(t));
       await load(metaKosong());
@@ -338,15 +349,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   );
 
   const replace = useCallback<Ctx['replace']>(
-    async (tipe, rows, token, opsi) => {
+    async (tipe, rows, opsi) => {
       const nm = salinMeta(metaRef.current);
       let mode: 'server' | 'lokal' = 'lokal';
       if (koneksiRef.current === 'server') {
-        const m = metaRef.current;
-        const base = opsi?.cekVersi ? (m.sumber[tipe] === 'server' ? (m.version[tipe] ?? 0) : 0) : undefined;
         let info;
         try {
-          info = await simpanData(tipe, rows, token ?? '', fetch, base);
+          info = await simpanData(tipe, rows, fetch, opsi?.hanyaBilaKosong ? 0 : undefined);
         } catch (e) {
           if (e instanceof RemoteError && e.status === 409) void sinkronRef.current();
           throw e;
@@ -364,6 +373,74 @@ export function DataProvider({ children }: { children: ReactNode }) {
       simpanMeta(nm);
       cache(tipe, rows);
       return mode;
+    },
+    [cache, simpanMeta],
+  );
+
+  // CRUD per baris: optimistic + antrian berurutan (urutan klik = urutan tulis ke DB).
+  const rawRef = useRef(raw);
+  rawRef.current = raw;
+  const antrian = useRef<Promise<unknown>>(Promise.resolve());
+  const [menyimpan, setMenyimpan] = useState(0);
+  const pendingRef = useRef(0);
+  const ubahBaris = useCallback<Ctx['ubahBaris']>(
+    (tipe, indeks, baru) => {
+      const sebelum = rawRef.current[tipe] as unknown[];
+      const lama = indeks === null ? null : sebelum[indeks];
+      const sesudah = terapkan(sebelum, indeks, baru);
+      // Tampilan langsung berubah.
+      rawRef.current = { ...rawRef.current, [tipe]: sesudah } as DataSet;
+      setRaw((prev) => ({ ...prev, [tipe]: sesudah }));
+
+      if (koneksiRef.current !== 'server') {
+        const nm = salinMeta(metaRef.current);
+        nm.sumber[tipe] = 'lokal';
+        nm.version[tipe] = null;
+        nm.updatedAt[tipe] = new Date().toISOString();
+        simpanMeta(nm);
+        cache(tipe, sesudah);
+        return Promise.resolve('lokal' as const);
+      }
+
+      pendingRef.current++;
+      setMenyimpan(pendingRef.current);
+      const kirim = async (): Promise<'server'> => {
+        const m = metaRef.current;
+        const dariServer = m.sumber[tipe] === 'server';
+        try {
+          // Jenis yang belum ada di DB (masih dummy/lokal) → simpan seluruh baris sekali; berikutnya per baris.
+          const op: OpBaris = indeks === null ? { op: 'tambah', baru } : baru ? { op: 'ubah', lama, baru } : { op: 'hapus', lama };
+          const info = dariServer ? await ubahBarisServer(tipe, op) : await simpanData(tipe, sesudah);
+          const nm = salinMeta(metaRef.current);
+          const versiLama = nm.version[tipe];
+          nm.sumber[tipe] = 'server';
+          nm.version[tipe] = info.version;
+          nm.updatedAt[tipe] = info.updatedAt;
+          simpanMeta(nm);
+          cache(tipe, rawRef.current[tipe] as unknown[]);
+          // Ada perubahan admin lain di antara → ambil versi terbaru setelah antrian kosong.
+          if (dariServer && versiLama !== null && info.version !== versiLama + 1) perluSinkron.current = true;
+          return 'server';
+        } catch (e) {
+          // Batalkan perubahan tampilan bila belum ditimpa perubahan lain.
+          if (rawRef.current[tipe] === sesudah) {
+            rawRef.current = { ...rawRef.current, [tipe]: sebelum } as DataSet;
+            setRaw((prev) => (prev[tipe] === sesudah ? { ...prev, [tipe]: sebelum } : prev));
+          } else perluSinkron.current = true;
+          if (e instanceof RemoteError && e.status === 404) perluSinkron.current = true;
+          throw e;
+        } finally {
+          pendingRef.current--;
+          setMenyimpan(pendingRef.current);
+          if (!pendingRef.current && perluSinkron.current) {
+            perluSinkron.current = false;
+            void sinkronRef.current();
+          }
+        }
+      };
+      const p = antrian.current.then(kirim, kirim);
+      antrian.current = p.catch(() => undefined);
+      return p;
     },
     [cache, simpanMeta],
   );
@@ -475,6 +552,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     updatedAt: meta.updatedAt,
     sumber: meta.sumber,
     versi: meta.version,
+    ubahBaris,
+    menyimpan,
     koneksi,
     infoKoneksi,
     pembaruan,

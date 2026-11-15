@@ -1,13 +1,12 @@
 import { ChevronLeft, ChevronRight, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card, cn, EmptyState, Field, IconButton, Input, Select, Sheet, useToast } from '../../components/ui';
+import { normKode } from '../../lib/billing';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
-import { cekDuplikat, indeksJenis, JENIS_DATA, jenisById, terapkan, type JenisData } from '../../lib/jenisData';
+import { cekDuplikat, indeksJenis, JENIS_DATA, jenisById, type JenisData } from '../../lib/jenisData';
 import { SKEMA, validasiBaris, type TipeData } from '../../lib/parse';
-import { mintaToken, RemoteError, tokenAdmin } from '../../lib/remote';
-import type { DataSet } from '../../lib/types';
 import { formatTimestamp, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
 
@@ -58,7 +57,7 @@ export function MasterPage() {
 }
 
 function MasterJenis({ j }: { j: JenisData }) {
-  const { raw, sumber, versi, updatedAt, koneksi, replace } = useData();
+  const { raw, sumber, versi, updatedAt, ubahBaris, menyimpan } = useData();
   const toast = useToast();
   const nav = useNavigate();
   const semuaKolom = SKEMA[j.tipe].kolom;
@@ -78,54 +77,63 @@ function MasterJenis({ j }: { j: JenisData }) {
   const [q, setQ] = useState('');
   const dq = useDeferredValue(q.trim().toLowerCase());
   const [hal, setHal] = useState(0);
+  // Teks pencarian dibuat sekali per data (bukan tiap ketik) → cari di 20 ribu baris tetap instan.
+  const teksCari = useMemo(() => {
+    const cacheTampil = new Map<string, string>();
+    const fmt = (k: Kolom, v: unknown) => {
+      if (k.jenis !== 'date' && k.jenis !== 'int') return '';
+      const key = `${k.nama}|${String(v)}`;
+      let t = cacheTampil.get(key);
+      if (t === undefined) cacheTampil.set(key, (t = tampil(k, v)));
+      return t;
+    };
+    const m = new Map<number, string>();
+    for (const i of indeks) {
+      const r = rows[i];
+      m.set(i, kolom.map((k) => `${String(r[k.nama] ?? '')} ${fmt(k, r[k.nama])}`).join(' ').toLowerCase());
+    }
+    return m;
+  }, [indeks, rows, kolom]);
   const hasil = useMemo(() => {
     if (!dq) return indeks;
     const kata = dq.split(/\s+/);
     return indeks.filter((i) => {
-      const r = rows[i];
-      const teks = kolom.map((k) => `${String(r[k.nama] ?? '')} ${tampil(k, r[k.nama])}`).join(' ').toLowerCase();
+      const teks = teksCari.get(i) ?? '';
       return kata.every((w) => teks.includes(w));
     });
-  }, [dq, indeks, rows, kolom]);
+  }, [dq, indeks, teksCari]);
   useEffect(() => setHal(0), [dq, j.id]);
   const jmlHal = Math.max(1, Math.ceil(hasil.length / PER_HALAMAN));
-  const halAman = Math.min(hal, jmlHal - 1);
+  // Baris yang baru ditambah/diedit: halaman otomatis lompat ke baris itu & disorot sebentar.
+  const [sorot, setSorot] = useState<number | null>(null);
+  const posSorot = sorot === null ? -1 : hasil.indexOf(sorot);
+  const halAman = posSorot >= 0 ? Math.floor(posSorot / PER_HALAMAN) : Math.min(hal, jmlHal - 1);
+  const halAmanRef = useRef(halAman);
+  halAmanRef.current = halAman;
   const tampilIdx = hasil.slice(halAman * PER_HALAMAN, (halAman + 1) * PER_HALAMAN);
+  useEffect(() => {
+    if (sorot === null || posSorot < 0) return;
+    document.querySelector(`[data-baris="${sorot}"]`)?.scrollIntoView({ block: 'center' });
+    const t = window.setTimeout(() => {
+      setHal(halAmanRef.current);
+      setSorot(null);
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [sorot, posSorot]);
+  const keHal = (h: number) => {
+    setSorot(null);
+    setHal(h);
+  };
 
   // Hanya "form mana yang terbuka" di sini; isian diketik di <FormBaris> (state sendiri)
   // supaya mengetik tidak me-render ulang tabel.
   const [form, setForm] = useState<{ id: number; indeks: number | null; awal: Record<string, string> } | null>(null);
-  const [simpanJalan, setSimpanJalan] = useState(false);
-
-  const simpanRows = async (next: Baris[], pesanOk: string): Promise<boolean> => {
-    let token = tokenAdmin();
-    if (koneksi === 'server' && !token) token = mintaToken();
-    if (koneksi === 'server' && !token) return false;
-    setSimpanJalan(true);
-    try {
-      for (let coba = 0; ; coba++) {
-        try {
-          const mode = await replace(j.tipe, next as unknown as DataSet[typeof j.tipe], token, { cekVersi: true });
-          toast(mode === 'server' ? `${pesanOk} · tersimpan di server` : `${pesanOk} (lokal, belum tersinkron)`);
-          return true;
-        } catch (e) {
-          if (e instanceof RemoteError && e.status === 401 && coba < 2) {
-            token = mintaToken(true);
-            if (token) continue;
-            return false;
-          }
-          if (e instanceof RemoteError && e.status === 409) {
-            toast('Data sudah diubah admin lain. List dimuat ulang — silakan ulangi.', 'error');
-            setForm(null);
-            return false;
-          }
-          toast(`Gagal menyimpan: ${e instanceof Error ? e.message : String(e)}`, 'error');
-          return false;
-        }
-      }
-    } finally {
-      setSimpanJalan(false);
-    }
+  /** Kirim ke DB di belakang; tampilan sudah berubah (optimistic). */
+  const kirim = (indeks: number | null, baru: object | null, pesanOk: string) => {
+    ubahBaris(j.tipe, indeks, baru).then(
+      (mode) => toast(mode === 'server' ? `${pesanOk} · tersimpan di database` : `${pesanOk} (lokal, server tidak terjangkau)`),
+      (e) => toast(`Gagal menyimpan, perubahan dibatalkan: ${e instanceof Error ? e.message : String(e)}`, 'error'),
+    );
   };
 
   const bukaForm = (i: number | null) => {
@@ -133,20 +141,30 @@ function MasterJenis({ j }: { j: JenisData }) {
   };
   const tutupForm = useCallback(() => setForm(null), []);
 
-  /** Validasi + simpan. Mengembalikan daftar error (kosong = tersimpan / dibatalkan). */
-  const simpanForm = async (indeks: number | null, nilai: Record<string, string>): Promise<string[]> => {
+  /** Cek isian; valid → form langsung ditutup & disimpan di belakang. Mengembalikan daftar error. */
+  const simpanForm = (indeks: number | null, nilai: Record<string, string>): string[] => {
     const v = validasiBaris<Baris>(j.tipe, nilai);
     if (!v.baris) return v.alasan;
     const dup = cekDuplikat(j.tipe, rows, v.baris, indeks);
     if (dup) return [dup];
-    const ok = await simpanRows(terapkan(rows, indeks, v.baris), indeks === null ? 'Baris ditambahkan' : 'Perubahan disimpan');
-    if (ok) setForm(null);
+    // PJP per channel: toko harus ada di Master Store channel yang sama (kalau tidak, baris tidak tampil di submenu ini).
+    if (j.tipe === 'pjp' && j.channel) {
+      const kode = normKode(String(v.baris.kode_toko ?? ''));
+      const toko = raw.master.find((m) => normKode(m.kode_toko) === kode);
+      if (!toko) return [`Kode toko ${kode} belum ada di Master Store. Tambahkan dulu di Store ${j.channel}.`];
+      const ch = String(toko.channel ?? '').toUpperCase() === 'MT' ? 'MT' : 'GT';
+      if (ch !== j.channel) return [`Toko ${kode} (${toko.nama_toko}) adalah Store ${ch}. Atur jadwalnya di PJP Sales ${ch}.`];
+    }
+    setForm(null);
+    setQ('');
+    setSorot(indeks ?? rows.length); // tambah → baris baru di akhir
+    kirim(indeks, v.baris, indeks === null ? 'Baris ditambahkan' : 'Perubahan disimpan');
     return [];
   };
 
-  const hapus = async (i: number) => {
+  const hapus = (i: number) => {
     if (!window.confirm(`Hapus baris ini dari ${j.nama}?\n\n${labelBaris(semuaKolom, rows[i])}`)) return;
-    await simpanRows(terapkan(rows, i, null), 'Baris dihapus');
+    kirim(i, null, 'Baris dihapus');
   };
 
   const s = sumber[j.tipe];
@@ -155,7 +173,7 @@ function MasterJenis({ j }: { j: JenisData }) {
       title={j.nama}
       description={j.desc}
       actions={
-        <Button onClick={() => bukaForm(null)} disabled={simpanJalan}>
+        <Button onClick={() => bukaForm(null)}>
           <Plus size={16} /> Tambah data
         </Button>
       }
@@ -171,10 +189,15 @@ function MasterJenis({ j }: { j: JenisData }) {
           </Select>
           <div className="relative min-w-[12rem] flex-1">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
-            <Input type="search" aria-label={`Cari di ${j.nama}`} placeholder="Cari kode, nama, tanggal…" value={q} onChange={(e) => setQ(e.target.value)} className="h-10 pl-9" />
+            <Input type="search" aria-label={`Cari di ${j.nama}`} placeholder="Cari kode, nama, tanggal…" value={q} onChange={(e) => {
+                setSorot(null);
+                setQ(e.target.value);
+              }} className="h-10 pl-9" />
           </div>
           <Badge tone={s === 'server' ? 'green' : s === 'lokal' ? 'orange' : 'gray'}>{s === 'server' ? `Server · v${versi[j.tipe]}` : s === 'lokal' ? 'Lokal' : 'Dummy'}</Badge>
-          <span className="text-xs text-slate-500">Diperbarui {formatTimestamp(updatedAt[j.tipe])}</span>
+          <span className="text-xs text-slate-500" aria-live="polite">
+            {menyimpan > 0 ? 'Menyimpan ke database…' : `Diperbarui ${formatTimestamp(updatedAt[j.tipe])}`}
+          </span>
         </div>
 
         {hasil.length === 0 ? (
@@ -197,19 +220,19 @@ function MasterJenis({ j }: { j: JenisData }) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {tampilIdx.map((i) => (
-                  <tr key={i} className="group hover:bg-slate-50">
+                  <tr key={i} data-baris={i} className={cn('group', i === sorot ? 'bg-amber-50' : 'hover:bg-slate-50')}>
                     <td className="px-3 py-2 text-right text-xs tabular text-slate-400">{i + 1}</td>
                     {kolom.map((k) => (
                       <td key={k.nama} className={cn('whitespace-nowrap px-3 py-2', k.jenis === 'int' && 'text-right tabular', k.nama.startsWith('nama') && 'max-w-[18rem] truncate')} title={String(rows[i][k.nama] ?? '')}>
                         {tampil(k, rows[i][k.nama])}
                       </td>
                     ))}
-                    <td className="sticky right-0 bg-white px-1 py-1 group-hover:bg-slate-50">
+                    <td className={cn('sticky right-0 px-1 py-1', i === sorot ? 'bg-amber-50' : 'bg-white group-hover:bg-slate-50')}>
                       <div className="flex justify-end">
-                        <IconButton label={`Edit baris ${i + 1}`} onClick={() => bukaForm(i)} disabled={simpanJalan} className="h-9 w-9 text-slate-500 hover:text-brand-700">
+                        <IconButton label={`Edit baris ${i + 1}`} onClick={() => bukaForm(i)} className="h-9 w-9 text-slate-500 hover:text-brand-700">
                           <Pencil size={16} />
                         </IconButton>
-                        <IconButton label={`Hapus baris ${i + 1}`} onClick={() => void hapus(i)} disabled={simpanJalan} className="h-9 w-9 text-slate-500 hover:bg-red-50 hover:text-red-600">
+                        <IconButton label={`Hapus baris ${i + 1}`} onClick={() => hapus(i)} className="h-9 w-9 text-slate-500 hover:bg-red-50 hover:text-red-600">
                           <Trash2 size={16} />
                         </IconButton>
                       </div>
@@ -227,13 +250,13 @@ function MasterJenis({ j }: { j: JenisData }) {
             {hasil.length.toLocaleString('id-ID')} baris{q && ` (total ${indeks.length.toLocaleString('id-ID')})`}
           </span>
           <div className="flex items-center gap-1">
-            <IconButton label="Halaman sebelumnya" onClick={() => setHal(halAman - 1)} disabled={halAman === 0} className="h-9 w-9">
+            <IconButton label="Halaman sebelumnya" onClick={() => keHal(halAman - 1)} disabled={halAman === 0} className="h-9 w-9">
               <ChevronLeft size={18} />
             </IconButton>
             <span className="tabular text-xs">
               {halAman + 1} / {jmlHal}
             </span>
-            <IconButton label="Halaman berikutnya" onClick={() => setHal(halAman + 1)} disabled={halAman >= jmlHal - 1} className="h-9 w-9">
+            <IconButton label="Halaman berikutnya" onClick={() => keHal(halAman + 1)} disabled={halAman >= jmlHal - 1} className="h-9 w-9">
               <ChevronRight size={18} />
             </IconButton>
           </div>
@@ -247,7 +270,6 @@ function MasterJenis({ j }: { j: JenisData }) {
           kolom={semuaKolom}
           indeks={form.indeks}
           awal={form.awal}
-          sibuk={simpanJalan}
           onTutup={tutupForm}
           onSimpan={simpanForm}
         />
@@ -261,32 +283,31 @@ interface FormProps {
   kolom: Kolom[];
   indeks: number | null;
   awal: Record<string, string>;
-  sibuk: boolean;
   onTutup: () => void;
-  onSimpan: (indeks: number | null, nilai: Record<string, string>) => Promise<string[]>;
+  onSimpan: (indeks: number | null, nilai: Record<string, string>) => string[];
 }
 
 /** Form tambah/edit satu baris. Isian disimpan lokal di sini → ketikan tidak me-render tabel induk. */
-function FormBaris({ j, kolom, indeks, awal, sibuk, onTutup, onSimpan }: FormProps) {
+function FormBaris({ j, kolom, indeks, awal, onTutup, onSimpan }: FormProps) {
   const [nilai, setNilai] = useState(awal);
   const [err, setErr] = useState<string[]>([]);
   const set = useCallback((nama: string, x: string) => setNilai((n) => ({ ...n, [nama]: x })), []);
-  const simpan = async () => setErr(await onSimpan(indeks, nilai));
-  const tutup = useCallback(() => {
-    if (!sibuk) onTutup();
-  }, [sibuk, onTutup]);
+  const simpan = () => {
+    const e = onSimpan(indeks, nilai);
+    if (e.length) setErr(e);
+  };
 
   return (
     <Sheet
       open
-      onClose={tutup}
+      onClose={onTutup}
       title={indeks === null ? `Tambah ${j.menu}` : `Edit ${j.menu} · baris ${indeks + 1}`}
       footer={
         <div className="flex gap-2">
-          <Button className="flex-1" onClick={() => void simpan()} disabled={sibuk}>
-            {sibuk ? 'Menyimpan…' : 'Simpan'}
+          <Button className="flex-1" onClick={simpan}>
+            Simpan
           </Button>
-          <Button variant="secondary" onClick={onTutup} disabled={sibuk}>
+          <Button variant="secondary" onClick={onTutup}>
             Batal
           </Button>
         </div>
@@ -296,7 +317,7 @@ function FormBaris({ j, kolom, indeks, awal, sibuk, onTutup, onSimpan }: FormPro
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          void simpan();
+          simpan();
         }}
       >
         {err.length > 0 && (

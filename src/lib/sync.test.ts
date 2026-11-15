@@ -8,19 +8,15 @@ import type { Kunjungan, MasterToko } from './types';
 import { gabungMaster, gabungPjp, hitungSegmen } from './upload';
 
 const store = memoryStore();
-const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store, 'pin');
+const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store);
 
 describe('client ↔ API (in-memory)', () => {
   it('simpan (gzip) → meta & data bisa dibaca perangkat lain', async () => {
     const rows = Array.from({ length: 5000 }, (_, i) => ({ kode_toko: `T${i}`, kode_sku: '124024', tanggal_po: '2026-10-01', qty: i }));
-    const info = await simpanData('histori', rows, 'pin', api);
+    const info = await simpanData('histori', rows, api);
     expect(info).toMatchObject({ version: 1, jumlah: 5000 });
     expect((await ambilMeta(api)).histori?.version).toBe(1);
     expect(await ambilData('histori', api)).toEqual(rows);
-  });
-
-  it('PIN salah → RemoteError 401', async () => {
-    await expect(simpanData('msl', [], 'salah', api)).rejects.toMatchObject({ status: 401 });
   });
 
   it('server tidak tersedia (respons HTML / network error) → RemoteError status 0', async () => {

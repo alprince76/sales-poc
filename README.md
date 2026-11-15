@@ -122,14 +122,17 @@ Upload admin di **Data & Upload** disimpan ke server dan otomatis dipakai aplika
 
 **Setup database, deploy, dan seed: lihat [docs/SETUP_NEON.md](docs/SETUP_NEON.md).** Ringkasnya:
 1. Buat project gratis di neon.tech (region Singapore), lalu salin connection string. Cara lain: Netlify Extensions → Neon.
-2. Env Netlify: `DATABASE_URL` dan `ADMIN_TOKEN` (PIN admin). Deploy ulang.
-3. Seed data awal agar tidak kosong, lewat tombol **Seed server** di Admin → Data & Upload, atau `npm run seed` (langsung ke Neon), atau `npm run seed -- --api=https://<site> --token=<PIN>`. Default hanya mengisi jenis data yang belum ada; `--force` untuk menimpa.
+2. Env Netlify: `DATABASE_URL`. Deploy ulang. Lokal: isi `DATABASE_URL` di `.env`, lalu `npm run dev` langsung tersambung ke Neon (API jalan sebagai middleware Vite).
+3. Seed data awal agar tidak kosong, lewat tombol **Seed server** di Admin → Data & Upload, atau `npm run seed` (langsung ke Neon), atau `npm run seed -- --api=https://<site>`. Default hanya mengisi jenis data yang belum ada; `--force` untuk menimpa.
 
 **Master Data** (menu admin, dengan submenu Store GT/MT, PJP GT/MT, Tagihan, SKU, MOQ GT, SKU Listed MT, Historical Order GT, Price List):
 - list dengan pencarian dan halaman 50 baris;
-- **tambah, edit, atau hapus per baris**, dengan validasi sama persis dengan upload Excel serta cek kode duplikat;
-- tersimpan ke server dan HP sales ikut ter-update;
-- bila dua admin mengedit bersamaan, simpanan yang kalah ditolak ("sudah diubah admin lain") lalu list dimuat ulang.
+- **tambah, edit, atau hapus per baris** tanpa PIN; form langsung tertutup (optimistic) dan hanya satu baris yang dikirim ke DB (±70–90 ms di Neon), bukan seluruh tabel;
+- validasi isian sama dengan upload Excel, plus cek kode duplikat;
+- baris di DB dicari berdasarkan isinya, jadi aman dipakai beberapa admin; bila baris sudah diubah/dihapus admin lain, perubahan dibatalkan otomatis dan list dimuat ulang;
+- HP sales ikut ter-update.
+
+Catatan keamanan POC: API tulis **tanpa login**. Siapa pun yang tahu URL situs bisa mengubah data master. Tambahkan login sebelum dipakai produksi.
 
 Dev lokal dengan API: `npx netlify dev`. Pakai `STORE=memory` bila tanpa DB; lihat `.env.example`.
 

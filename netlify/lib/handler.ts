@@ -1,9 +1,13 @@
 /**
- * API data master: /api/data/meta, /api/data/:tipe (GET publik; PUT/DELETE butuh header x-admin-token).
- * Body PUT = JSON array rows, boleh gzip (header x-body-encoding: gzip).
- * Header opsional x-base-version: versi yang diedit (0 = belum ada) → 409 bila sudah berubah.
+ * API data master (tanpa login — POC):
+ *   GET    /api/data/meta          versi & jumlah per jenis
+ *   GET    /api/data/:tipe         semua baris
+ *   PUT    /api/data/:tipe         ganti semua baris (upload Excel / seed). Body = JSON array, boleh gzip (x-body-encoding: gzip).
+ *                                  Header opsional x-base-version (0 = hanya bila belum ada) → 409 bila sudah berubah.
+ *   PATCH  /api/data/:tipe         CRUD satu baris: { op: 'tambah', baru } | { op: 'ubah', lama, baru } | { op: 'hapus', lama }
+ *   DELETE /api/data/:tipe         hapus jenis data (kembali ke dummy)
  */
-import { KonflikVersi, TIPE, type Store, type Tipe } from './store';
+import { BarisTidakAda, KonflikVersi, TIPE, type OpBaris, type Store, type Tipe } from './store';
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: HEADERS });
@@ -16,12 +20,22 @@ async function bacaBody(req: Request): Promise<string> {
   return req.text();
 }
 
-export async function handle(req: Request, store: Store | null, adminToken: string | undefined): Promise<Response> {
+const objek = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+function opValid(b: unknown): b is OpBaris {
+  if (!objek(b)) return false;
+  const o = b as Record<string, unknown>;
+  if (o.op === 'tambah') return objek(o.baru);
+  if (o.op === 'ubah') return objek(o.lama) && objek(o.baru);
+  if (o.op === 'hapus') return objek(o.lama);
+  return false;
+}
+
+export async function handle(req: Request, store: Store | null): Promise<Response> {
   const path = new URL(req.url).pathname.replace(/\/+$/, '');
   const seg = path.split('/').filter(Boolean); // ['api','data', ...]
   const target = seg[2] ?? 'meta';
 
-  if (!store) return gagal(503, 'Database belum dikonfigurasi (set NETLIFY_DATABASE_URL / DATABASE_URL).');
+  if (!store) return gagal(503, 'Database belum dikonfigurasi (set DATABASE_URL / NETLIFY_DATABASE_URL).');
 
   if (target === 'meta') {
     if (req.method !== 'GET') return gagal(405, 'Method tidak didukung');
@@ -36,26 +50,35 @@ export async function handle(req: Request, store: Store | null, adminToken: stri
     return new Response(d.json, { status: 200, headers: { ...HEADERS, 'x-version': String(d.info.version), 'x-updated-at': d.info.updatedAt } });
   }
 
-  if (req.method === 'PUT' || req.method === 'DELETE') {
-    if (!adminToken) return gagal(503, 'ADMIN_TOKEN belum diset di server.');
-    if (req.headers.get('x-admin-token') !== adminToken) return gagal(401, 'PIN admin salah');
-    if (req.method === 'DELETE') {
-      await store.hapus(tipe);
-      return json(200, { ok: true });
-    }
-    let rows: unknown;
+  if (req.method === 'DELETE') {
+    await store.hapus(tipe);
+    return json(200, { ok: true });
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(await bacaBody(req));
+  } catch {
+    return gagal(400, 'Body bukan JSON yang valid');
+  }
+
+  if (req.method === 'PATCH') {
+    if (!opValid(body)) return gagal(400, "Format operasi salah. Pakai { op: 'tambah'|'ubah'|'hapus', lama?, baru? }");
     try {
-      rows = JSON.parse(await bacaBody(req));
-    } catch {
-      return gagal(400, 'Body bukan JSON yang valid');
+      return json(200, { ok: true, data: await store.ubahBaris(tipe, body) });
+    } catch (e) {
+      if (e instanceof BarisTidakAda) return gagal(404, e.message);
+      throw e;
     }
-    if (!Array.isArray(rows)) return gagal(400, 'Body harus berupa array baris');
+  }
+
+  if (req.method === 'PUT') {
+    if (!Array.isArray(body)) return gagal(400, 'Body harus berupa array baris');
     const bv = req.headers.get('x-base-version');
     const base = bv === null || bv === '' ? undefined : Number(bv);
     if (base !== undefined && !Number.isInteger(base)) return gagal(400, 'x-base-version tidak valid');
     try {
-      const info = await store.simpan(tipe, JSON.stringify(rows), rows.length, base);
-      return json(200, { ok: true, data: info });
+      return json(200, { ok: true, data: await store.simpan(tipe, JSON.stringify(body), body.length, base) });
     } catch (e) {
       if (e instanceof KonflikVersi) return json(409, { ok: false, error: e.message, version: e.versiServer });
       throw e;

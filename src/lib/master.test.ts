@@ -5,7 +5,7 @@ import { pilihTipeSeed } from '../../netlify/lib/seed';
 import { memoryStore } from '../../netlify/lib/store';
 import { cekDuplikat, indeksJenis, jenisById, JENIS_DATA, terapkan } from './jenisData';
 import { SEMUA_TIPE, validasiBaris } from './parse';
-import { simpanData } from './remote';
+import { simpanData, ubahBaris } from './remote';
 import type { DataSet } from './types';
 
 describe('validasiBaris = aturan upload Excel', () => {
@@ -57,15 +57,28 @@ describe('jenis data & operasi baris', () => {
   });
 });
 
-describe('cek versi (dua admin)', () => {
-  it('PUT dengan versi lama → 409; versi benar → sukses; 0 = hanya bila belum ada', async () => {
+describe('cek versi (seed hanya isi yang kosong)', () => {
+  it('seed (versi 0) hanya bila kosong → 409 bila sudah ada; tanpa versi = timpa', async () => {
     const store = memoryStore();
-    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store, 'pin');
-    expect((await simpanData('rules', [1], 'pin', api, 0)).version).toBe(1);
-    await expect(simpanData('rules', [2], 'pin', api, 0)).rejects.toMatchObject({ status: 409 });
-    expect((await simpanData('rules', [2], 'pin', api, 1)).version).toBe(2);
-    await expect(simpanData('rules', [3], 'pin', api, 1)).rejects.toMatchObject({ status: 409 });
-    expect((await simpanData('rules', [3], 'pin', api)).version).toBe(3); // upload file: tanpa cek
+    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store);
+    expect((await simpanData('rules', [1], api, 0)).version).toBe(1);
+    await expect(simpanData('rules', [2], api, 0)).rejects.toMatchObject({ status: 409 });
+    expect((await simpanData('rules', [2], api, 1)).version).toBe(2);
+    await expect(simpanData('rules', [3], api, 1)).rejects.toMatchObject({ status: 409 });
+    expect((await simpanData('rules', [3], api)).version).toBe(3); // upload file: tanpa cek
+  });
+});
+
+describe('CRUD per baris lewat client', () => {
+  it('tambah/ubah/hapus satu baris tanpa mengirim seluruh tabel', async () => {
+    const store = memoryStore();
+    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store);
+    await simpanData('histori', Array.from({ length: 20_000 }, (_, i) => ({ kode_toko: `T${i}`, kode_sku: '1', tanggal_po: '2026-10-01', qty: 1 })), api);
+    const lama = { kode_toko: 'T5', kode_sku: '1', tanggal_po: '2026-10-01', qty: 1 };
+    expect((await ubahBaris('histori', { op: 'ubah', lama, baru: { ...lama, qty: 7 } }, api)).version).toBe(2);
+    expect((await ubahBaris('histori', { op: 'hapus', lama: { ...lama, kode_toko: 'T6' } }, api)).jumlah).toBe(19_999);
+    expect((await ubahBaris('histori', { op: 'tambah', baru: { ...lama, kode_toko: 'BARU' } }, api)).jumlah).toBe(20_000);
+    await expect(ubahBaris('histori', { op: 'hapus', lama }, api)).rejects.toMatchObject({ status: 404 });
   });
 });
 

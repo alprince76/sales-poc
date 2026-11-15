@@ -55,11 +55,11 @@ async function gzip(text: string): Promise<Blob | null> {
   }
 }
 
-/** baseVersion: versi yang sedang diedit (0 = belum ada di server) → RemoteError 409 bila sudah berubah. */
-export async function simpanData(tipe: TipeData, rows: unknown[], token: string, fetcher: typeof fetch = fetch, baseVersion?: number): Promise<InfoServer> {
+/** Ganti semua baris (upload / seed). baseVersion 0 = hanya bila belum ada di server (409 bila sudah). */
+export async function simpanData(tipe: TipeData, rows: unknown[], fetcher: typeof fetch = fetch, baseVersion?: number): Promise<InfoServer> {
   const text = JSON.stringify(rows);
   const zipped = await gzip(text);
-  const headers: Record<string, string> = { 'content-type': 'application/json', 'x-admin-token': token };
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (zipped) headers['x-body-encoding'] = 'gzip';
   if (baseVersion !== undefined) headers['x-base-version'] = String(baseVersion);
   let res: Response;
@@ -71,8 +71,21 @@ export async function simpanData(tipe: TipeData, rows: unknown[], token: string,
   return bacaJson<InfoServer>(res);
 }
 
-export async function hapusData(tipe: TipeData, token: string, fetcher: typeof fetch = fetch): Promise<void> {
-  const res = await fetcher(`${BASE}/${tipe}`, { method: 'DELETE', headers: { 'x-admin-token': token } });
+/** CRUD satu baris. `lama` = isi baris persis seperti yang dibaca dari server. */
+export type OpBaris = { op: 'tambah'; baru: unknown } | { op: 'ubah'; lama: unknown; baru: unknown } | { op: 'hapus'; lama: unknown };
+
+export async function ubahBaris(tipe: TipeData, op: OpBaris, fetcher: typeof fetch = fetch): Promise<InfoServer> {
+  let res: Response;
+  try {
+    res = await fetcher(`${BASE}/${tipe}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(op) });
+  } catch {
+    throw new RemoteError('Server data tidak terjangkau', 0);
+  }
+  return bacaJson<InfoServer>(res);
+}
+
+export async function hapusData(tipe: TipeData, fetcher: typeof fetch = fetch): Promise<void> {
+  const res = await fetcher(`${BASE}/${tipe}`, { method: 'DELETE' });
   await bacaJson(res);
 }
 
@@ -96,29 +109,4 @@ export function bandingVersi(
     } else if (sumber[t] === 'server') hilang.push(t);
   }
   return { unduh, hilang };
-}
-
-const KEY_TOKEN = 'svdi-admin-token';
-/** PIN admin dari sesi, atau minta lewat prompt (paksa = PIN tersimpan ditolak server). Kosong = batal. */
-export function mintaToken(paksa = false): string {
-  const ada = tokenAdmin();
-  if (ada && !paksa) return ada;
-  const t = window.prompt(paksa ? 'PIN admin salah. Masukkan PIN admin:' : 'Masukkan PIN admin untuk menyimpan ke server:')?.trim() ?? '';
-  setTokenAdmin(t);
-  return t;
-}
-export function tokenAdmin(): string {
-  try {
-    return sessionStorage.getItem(KEY_TOKEN) ?? '';
-  } catch {
-    return '';
-  }
-}
-export function setTokenAdmin(t: string) {
-  try {
-    if (t) sessionStorage.setItem(KEY_TOKEN, t);
-    else sessionStorage.removeItem(KEY_TOKEN);
-  } catch {
-    /* abaikan */
-  }
 }

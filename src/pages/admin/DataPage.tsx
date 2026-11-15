@@ -1,10 +1,10 @@
-import { Cloud, CloudOff, DatabaseZap, FileSpreadsheet, KeyRound, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { Cloud, CloudOff, DatabaseZap, FileSpreadsheet, RefreshCw, RotateCcw, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { Badge, Button, Card, Input, useToast } from '../../components/ui';
+import { Badge, Button, Card, useToast } from '../../components/ui';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { bacaWorkbook, parseSheet, pilihSheet, SEMUA_TIPE, SKEMA, type HasilParse } from '../../lib/parse';
-import { mintaToken, RemoteError, setTokenAdmin, tokenAdmin } from '../../lib/remote';
+import { RemoteError } from '../../lib/remote';
 import type { DataSet, Kunjungan, MasterToko } from '../../lib/types';
 import { gabungMaster, gabungPjp, hitungSegmen, ringkasUpload, type RingkasanUpload } from '../../lib/upload';
 import { formatTimestamp, INTERVAL_SINKRON, useData } from '../../state';
@@ -45,13 +45,10 @@ export function DataPage() {
                   : 'Ganti semua data master di browser ini dengan data dummy?',
               );
               if (!ok) return;
-              const token = server ? mintaToken() : undefined;
-              if (server && !token) return;
               try {
-                await resetDummy(token);
+                await resetDummy();
                 toast('Data dummy dimuat', 'info');
               } catch (e) {
-                if (e instanceof RemoteError && e.status === 401) setTokenAdmin('');
                 toast(`Gagal reset: ${e instanceof Error ? e.message : String(e)}`, 'error');
               }
             }}
@@ -85,7 +82,6 @@ export function DataPage() {
 
 function StatusServer({ cek, onCek }: { cek: boolean; onCek: () => void }) {
   const { koneksi, infoKoneksi } = useData();
-  const [pin, setPin] = useState(tokenAdmin);
   if (koneksi === 'cek') return null;
   if (koneksi === 'lokal')
     return (
@@ -94,7 +90,7 @@ function StatusServer({ cek, onCek }: { cek: boolean; onCek: () => void }) {
         <div className="min-w-0">
           <p className="font-semibold">Mode lokal — upload hanya tersimpan di browser ini</p>
           <p className="mt-0.5 text-amber-800">
-            Server data tidak terjangkau{infoKoneksi ? ` (${infoKoneksi})` : ''}. Perangkat sales tidak ikut ter-update sampai server aktif (lihat README: Neon + ADMIN_TOKEN di Netlify).
+            Server data tidak terjangkau{infoKoneksi ? ` (${infoKoneksi})` : ''}. Perangkat sales tidak ikut ter-update sampai server aktif. Lokal: isi DATABASE_URL di .env lalu jalankan ulang npm run dev. Netlify: lihat docs/SETUP_NEON.md.
           </p>
         </div>
       </div>
@@ -103,21 +99,8 @@ function StatusServer({ cek, onCek }: { cek: boolean; onCek: () => void }) {
     <div role="status" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
       <Cloud size={18} className="shrink-0" />
       <p className="min-w-0 flex-1">
-        <span className="font-semibold">Tersambung ke server.</span> Upload langsung tersinkron; aplikasi sales mengecek pembaruan tiap {INTERVAL_SINKRON / 1000} detik & saat dibuka.
+        <span className="font-semibold">Tersambung ke database.</span> Upload & edit di Master Data langsung tersimpan; aplikasi sales mengecek pembaruan tiap {INTERVAL_SINKRON / 1000} detik & saat dibuka.
       </p>
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setTokenAdmin(pin.trim());
-        }}
-      >
-        <KeyRound size={16} className="text-emerald-700" aria-hidden />
-        <label className="sr-only" htmlFor="pin-admin">
-          PIN admin
-        </label>
-        <Input id="pin-admin" type="password" autoComplete="current-password" placeholder="PIN admin" value={pin} onChange={(e) => setPin(e.target.value)} onBlur={() => setTokenAdmin(pin.trim())} className="h-9 w-32" />
-      </form>
       <Button size="sm" variant="secondary" onClick={onCek} disabled={cek}>
         <RefreshCw size={14} className={cek ? 'animate-spin' : ''} /> Cek pembaruan
       </Button>
@@ -135,28 +118,15 @@ function SeedServer() {
   if (!kosong.length) return null;
   const seed = async () => {
     if (!window.confirm(`Isi server dengan data saat ini (dummy/lokal) untuk ${kosong.length} jenis data yang belum ada di server?\n\n${kosong.join(', ')}`)) return;
-    let token = mintaToken();
-    if (!token) return;
     setJalan(true);
     let ok = 0;
     const gagal: string[] = [];
     try {
       for (const t of kosong) {
         try {
-          await replace(t, raw[t], token, { cekVersi: true });
+          await replace(t, raw[t], { hanyaBilaKosong: true });
           ok++;
         } catch (e) {
-          if (e instanceof RemoteError && e.status === 401) {
-            token = mintaToken(true);
-            if (!token) break;
-            try {
-              await replace(t, raw[t], token, { cekVersi: true });
-              ok++;
-              continue;
-            } catch (e2) {
-              e = e2;
-            }
-          }
           // 409 = sudah diisi admin lain → biarkan versi server.
           if (!(e instanceof RemoteError && e.status === 409)) gagal.push(`${t}: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -231,28 +201,15 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
       rows = g.rows as DataSet[typeof tipe];
       if (g.diLuar) catatan.push(`${g.diLuar} kunjungan ke toko yang bukan Store ${channel} di Master (tetap disimpan).`);
     }
-    let token = tokenAdmin();
     setMenyimpan(true);
     try {
-      for (let coba = 0; ; coba++) {
-        try {
-          const mode = await replace(tipe, rows, token);
-          const r = ringkasUpload(tipe, { ...raw, [tipe]: rows }, { rupiah: formatRupiah, tanggal: formatTanggal });
-          setHasil({ ...r, warning: [...catatan, ...r.warning, ...(mode === 'lokal' ? ['Mode lokal: data hanya tersimpan di browser ini, perangkat sales belum ter-update.'] : [])] });
-          toast(mode === 'server' ? `${kartu.nama} disimpan ke server` : `${kartu.nama} disimpan (lokal)`);
-          reset();
-          return;
-        } catch (e) {
-          if (e instanceof RemoteError && e.status === 401 && coba < 2) {
-            token = mintaToken(!!token);
-            if (token) continue;
-            setTolak('Butuh PIN admin untuk menyimpan ke server.');
-            return;
-          }
-          setTolak(`Gagal menyimpan ke server: ${e instanceof Error ? e.message : String(e)}. Data belum berubah.`);
-          return;
-        }
-      }
+      const mode = await replace(tipe, rows);
+      const r = ringkasUpload(tipe, { ...raw, [tipe]: rows }, { rupiah: formatRupiah, tanggal: formatTanggal });
+      setHasil({ ...r, warning: [...catatan, ...r.warning, ...(mode === 'lokal' ? ['Mode lokal: data hanya tersimpan di browser ini, perangkat sales belum ter-update.'] : [])] });
+      toast(mode === 'server' ? `${kartu.nama} disimpan ke database` : `${kartu.nama} disimpan (lokal)`);
+      reset();
+    } catch (e) {
+      setTolak(`Gagal menyimpan ke database: ${e instanceof Error ? e.message : String(e)}. Data belum berubah.`);
     } finally {
       setMenyimpan(false);
     }

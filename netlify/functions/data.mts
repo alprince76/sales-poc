@@ -1,13 +1,13 @@
 /**
  * Netlify Function (v2): API sinkronisasi data master upload admin.
- * Env: NETLIFY_DATABASE_URL atau DATABASE_URL (Neon Postgres), ADMIN_TOKEN (PIN admin).
+ * Env: DATABASE_URL atau NETLIFY_DATABASE_URL (Neon Postgres).
  */
 import { handle } from '../lib/handler';
 import { pilihStore } from '../lib/store';
 
 export default async (req: Request): Promise<Response> => {
   try {
-    return await handle(req, pilihStore(process.env), process.env.ADMIN_TOKEN);
+    return await handle(req, pilihStore(process.env));
   } catch (e) {
     console.error(e);
     return new Response(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }), {

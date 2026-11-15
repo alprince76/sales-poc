@@ -22,6 +22,27 @@ export interface Store {
   /** baseVersion: bila diisi dan ≠ versi saat ini → lempar KonflikVersi (0 = belum ada di server). */
   simpan(tipe: Tipe, json: string, jumlah: number, baseVersion?: number): Promise<InfoData>;
   hapus(tipe: Tipe): Promise<void>;
+  /** Operasi satu baris (CRUD). Baris dicari berdasarkan isi (`lama`), bukan indeks → aman dipakai bersamaan. */
+  ubahBaris(tipe: Tipe, op: OpBaris): Promise<InfoData>;
+}
+
+/** CRUD satu baris. `lama` = isi baris persis seperti yang dibaca dari server. */
+export type OpBaris = { op: 'tambah'; baru: unknown } | { op: 'ubah'; lama: unknown; baru: unknown } | { op: 'hapus'; lama: unknown };
+
+export class BarisTidakAda extends Error {
+  constructor() {
+    super('Baris tidak ditemukan — mungkin sudah diubah/dihapus admin lain. Data dimuat ulang.');
+  }
+}
+
+/** Kesamaan isi baris seperti jsonb (urutan key tidak berpengaruh). */
+export function samaIsi(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a as object).filter((k) => (a as Record<string, unknown>)[k] !== undefined);
+  const kb = Object.keys(b as object).filter((k) => (b as Record<string, unknown>)[k] !== undefined);
+  return ka.length === kb.length && ka.every((k) => samaIsi((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
 }
 
 export class KonflikVersi extends Error {
@@ -48,6 +69,20 @@ export function memoryStore(): Store {
     },
     async hapus(tipe) {
       db.delete(tipe);
+    },
+    async ubahBaris(tipe, op) {
+      const ada = db.get(tipe);
+      const rows: unknown[] = ada ? JSON.parse(ada.json) : [];
+      if (op.op === 'tambah') rows.push(op.baru);
+      else {
+        const i = rows.findIndex((r) => samaIsi(r, op.lama));
+        if (i < 0) throw new BarisTidakAda();
+        if (op.op === 'ubah') rows[i] = op.baru;
+        else rows.splice(i, 1);
+      }
+      const info = { version: (ada?.info.version ?? 0) + 1, updatedAt: new Date().toISOString(), jumlah: rows.length };
+      db.set(tipe, { json: JSON.stringify(rows), info });
+      return info;
     },
   };
 }
@@ -112,6 +147,47 @@ export function neonStore(url: string): Store {
     async hapus(tipe) {
       await init();
       await sql`DELETE FROM dataset WHERE tipe = ${tipe}`;
+    },
+    async ubahBaris(tipe, op) {
+      await init();
+      const hasil = (r: Baris[]) => {
+        if (!r.length) throw new BarisTidakAda();
+        return { version: r[0].version, jumlah: r[0].jumlah, updatedAt: iso(r[0].updated_at) };
+      };
+      if (op.op === 'tambah') {
+        return hasil((await sql`
+          INSERT INTO dataset (tipe, rows, jumlah, version, updated_at)
+          VALUES (${tipe}, jsonb_build_array(${JSON.stringify(op.baru)}::jsonb), 1, 1, now())
+          ON CONFLICT (tipe) DO UPDATE
+            SET rows = dataset.rows || EXCLUDED.rows, jumlah = dataset.jumlah + 1, version = dataset.version + 1, updated_at = now()
+          RETURNING version, jumlah, updated_at`) as Baris[]);
+      }
+      const lama = JSON.stringify(op.lama);
+      if (op.op === 'ubah') {
+        return hasil((await sql`
+          WITH idx AS (
+            SELECT (e.o - 1)::int AS i
+            FROM dataset d, jsonb_array_elements(d.rows) WITH ORDINALITY AS e(v, o)
+            WHERE d.tipe = ${tipe} AND e.v = ${lama}::jsonb
+            LIMIT 1
+          )
+          UPDATE dataset
+            SET rows = jsonb_set(rows, ARRAY[(SELECT i FROM idx)::text], ${JSON.stringify(op.baru)}::jsonb),
+                version = version + 1, updated_at = now()
+          WHERE tipe = ${tipe} AND EXISTS (SELECT 1 FROM idx)
+          RETURNING version, jumlah, updated_at`) as Baris[]);
+      }
+      return hasil((await sql`
+        WITH idx AS (
+          SELECT (e.o - 1)::int AS i
+          FROM dataset d, jsonb_array_elements(d.rows) WITH ORDINALITY AS e(v, o)
+          WHERE d.tipe = ${tipe} AND e.v = ${lama}::jsonb
+          LIMIT 1
+        )
+        UPDATE dataset
+          SET rows = rows - (SELECT i FROM idx), jumlah = jumlah - 1, version = version + 1, updated_at = now()
+        WHERE tipe = ${tipe} AND EXISTS (SELECT 1 FROM idx)
+        RETURNING version, jumlah, updated_at`) as Baris[]);
     },
   };
 }

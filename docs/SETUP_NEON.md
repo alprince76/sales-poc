@@ -2,7 +2,7 @@
 
 Panduan ini membuat aplikasi memakai **database server**. Upload dan edit data di Admin lalu tersimpan di Neon dan otomatis dipakai aplikasi sales di semua HP. Semua layanan memakai paket **gratis**.
 
-Waktu: ±10 menit. Yang dibutuhkan: akun Netlify (situs ini sudah ter-deploy dari GitHub) dan email untuk daftar Neon.
+Waktu: ±10 menit. Yang dibutuhkan: akun Netlify (situs ini sudah ter-deploy dari GitHub) dan email untuk daftar Neon. Tidak perlu PIN/token admin.
 
 ---
 
@@ -33,7 +33,6 @@ Netlify → pilih site → **Site configuration → Environment variables → Ad
 | Key | Value | Keterangan |
 |---|---|---|
 | `DATABASE_URL` | connection string dari langkah 1.3 | Tidak perlu bila memakai Extension Neon (`NETLIFY_DATABASE_URL`). |
-| `ADMIN_TOKEN` | PIN admin pilihan Anda, mis. `bdg-2026-xyz` | Dipakai untuk upload, edit, hapus, dan seed. Bagikan hanya ke admin. |
 
 Scope: *All scopes*. Context: *All deploy contexts* (atau minimal *Production*).
 
@@ -61,12 +60,11 @@ Pilih salah satu cara:
 
 **A. Dari dashboard (paling mudah)**
 1. Buka `https://<site>/admin/data`. Banner hijau harus berbunyi **"Tersambung ke server"**.
-2. Isi **PIN admin** (`ADMIN_TOKEN`).
-3. Klik **Seed server (8 jenis)**, lalu konfirmasi. Tunggu toast *"Seed selesai"*. Setiap kartu kemudian berlabel **Server · v1**.
+2. Klik **Seed server (8 jenis)**, lalu konfirmasi. Tunggu toast *"Seed selesai"*. Setiap kartu kemudian berlabel **Server · v1**.
 
 **B. Dari terminal, lewat API site yang sudah deploy**
 ```bash
-npm run seed -- --api=https://<site>.netlify.app --token=<ADMIN_TOKEN>
+npm run seed -- --api=https://<site>.netlify.app
 ```
 
 **C. Dari terminal, langsung ke Neon** (tanpa perlu deploy dulu)
@@ -102,7 +100,7 @@ SELECT tipe, jumlah, version, updated_at FROM dataset ORDER BY tipe;
 
 ## 5. Pakai sehari-hari
 
-- **Admin → Master Data → (submenu)**: lihat list, cari, **tambah, edit, atau hapus per baris**.
+- **Admin → Master Data → (submenu)**: lihat list, cari, **tambah, edit, atau hapus per baris** (langsung tersimpan, tanpa PIN).
 - **Admin → Data & Upload**: ganti satu jenis data sekaligus dari file Excel. Store/PJP GT dan MT dipisah.
 - HP sales mengambil pembaruan **tiap 60 detik** dan setiap kali aplikasi dibuka, lalu menampilkan toast *"Data diperbarui admin"*.
 - **Reset ke data dummy** (Data & Upload) menghapus semua data di server. Untuk mengisinya lagi, jalankan seed ulang.
@@ -112,18 +110,15 @@ SELECT tipe, jumlah, version, updated_at FROM dataset ORDER BY tipe;
 | Gejala | Penyebab & solusi |
 |---|---|
 | Banner kuning **"Mode lokal"** | API tidak terjangkau atau DB belum diset. Cek `/api/data/meta` (langkah 3). |
-| **PIN admin salah** (401) | Isi ulang PIN di Data & Upload; harus sama persis dengan `ADMIN_TOKEN`. |
-| **"Data sudah diubah admin lain"** (409) | Admin lain menyimpan lebih dulu. List dimuat ulang otomatis; ulangi edit. |
-| `ADMIN_TOKEN belum diset di server` (503) | Tambah env `ADMIN_TOKEN`, lalu deploy ulang. |
+| **"Gagal menyimpan, perubahan dibatalkan"** | Baris itu sudah diubah/dihapus admin lain. List dimuat ulang otomatis; ulangi edit. |
 | Upload file besar gagal | Batas body Netlify ±6 MB setelah gzip per jenis data. Pecah file atau kurangi kolom. |
 | Neon "compute suspended" | Normal di paket gratis (tidur saat idle). Request pertama sedikit lebih lambat. |
 
-## Dev lokal (opsional)
+## Dev lokal
 
+Isi `DATABASE_URL` di file `.env` (lihat `.env.example`), lalu:
 ```bash
-npm i -g netlify-cli
-netlify link            # pilih site
-netlify dev             # web + function di http://localhost:8888 (env diambil dari Netlify)
-# tanpa DB: STORE=memory ADMIN_TOKEN=pin netlify dev
+npm run dev        # http://localhost:5173 — API /api/data ikut jalan & tersambung ke Neon
 ```
-`npm run dev` biasa (tanpa function) tetap jalan dalam **Mode lokal**.
+API dijalankan sebagai middleware Vite (handler yang sama dengan Netlify Function), jadi **tidak perlu netlify CLI**.
+`vite preview` juga sama. Tanpa DB: `STORE=memory npm run dev` (data di memori).
