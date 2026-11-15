@@ -379,10 +379,14 @@ export function NumberStepper({
 /** Bottom sheet di mobile, dialog di tengah layar ≥ sm. */
 export function Sheet({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode }) {
   const panel = useRef<HTMLDivElement>(null);
+  // onClose lewat ref: induk boleh mengirim arrow function baru tiap render tanpa memicu ulang efek
+  // (kalau tidak, fokus "dicuri" kembali ke panel setiap kali user mengetik di input dalam sheet).
+  const tutup = useRef(onClose);
+  tutup.current = onClose;
   useEffect(() => {
     if (!open) return;
     const prev = document.activeElement as HTMLElement | null;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && tutup.current();
     document.addEventListener('keydown', onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -392,7 +396,7 @@ export function Sheet({ open, onClose, title, children, footer }: { open: boolea
       document.body.style.overflow = overflow;
       prev?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">

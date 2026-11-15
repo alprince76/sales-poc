@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Badge, Button, Card, cn, EmptyState, Field, IconButton, Input, Select, Sheet, useToast } from '../../components/ui';
 import { formatTanggal } from '../../lib/dates';
@@ -92,8 +92,9 @@ function MasterJenis({ j }: { j: JenisData }) {
   const halAman = Math.min(hal, jmlHal - 1);
   const tampilIdx = hasil.slice(halAman * PER_HALAMAN, (halAman + 1) * PER_HALAMAN);
 
-  const [form, setForm] = useState<{ indeks: number | null; nilai: Record<string, string> } | null>(null);
-  const [errForm, setErrForm] = useState<string[]>([]);
+  // Hanya "form mana yang terbuka" di sini; isian diketik di <FormBaris> (state sendiri)
+  // supaya mengetik tidak me-render ulang tabel.
+  const [form, setForm] = useState<{ id: number; indeks: number | null; awal: Record<string, string> } | null>(null);
   const [simpanJalan, setSimpanJalan] = useState(false);
 
   const simpanRows = async (next: Baris[], pesanOk: string): Promise<boolean> => {
@@ -128,18 +129,19 @@ function MasterJenis({ j }: { j: JenisData }) {
   };
 
   const bukaForm = (i: number | null) => {
-    setErrForm([]);
-    setForm({ indeks: i, nilai: keForm(semuaKolom, i === null ? null : rows[i], j) });
+    setForm({ id: Date.now(), indeks: i, awal: keForm(semuaKolom, i === null ? null : rows[i], j) });
   };
+  const tutupForm = useCallback(() => setForm(null), []);
 
-  const simpanForm = async () => {
-    if (!form) return;
-    const v = validasiBaris<Baris>(j.tipe, form.nilai);
-    if (!v.baris) return setErrForm(v.alasan);
-    const dup = cekDuplikat(j.tipe, rows, v.baris, form.indeks);
-    if (dup) return setErrForm([dup]);
-    const ok = await simpanRows(terapkan(rows, form.indeks, v.baris), form.indeks === null ? 'Baris ditambahkan' : 'Perubahan disimpan');
+  /** Validasi + simpan. Mengembalikan daftar error (kosong = tersimpan / dibatalkan). */
+  const simpanForm = async (indeks: number | null, nilai: Record<string, string>): Promise<string[]> => {
+    const v = validasiBaris<Baris>(j.tipe, nilai);
+    if (!v.baris) return v.alasan;
+    const dup = cekDuplikat(j.tipe, rows, v.baris, indeks);
+    if (dup) return [dup];
+    const ok = await simpanRows(terapkan(rows, indeks, v.baris), indeks === null ? 'Baris ditambahkan' : 'Perubahan disimpan');
     if (ok) setForm(null);
+    return [];
   };
 
   const hapus = async (i: number) => {
@@ -238,79 +240,121 @@ function MasterJenis({ j }: { j: JenisData }) {
         </div>
       </Card>
 
-      <Sheet
-        open={!!form}
-        onClose={() => !simpanJalan && setForm(null)}
-        title={form?.indeks === null ? `Tambah ${j.menu}` : `Edit ${j.menu} · baris ${(form?.indeks ?? 0) + 1}`}
-        footer={
-          <div className="flex gap-2">
-            <Button className="flex-1" onClick={() => void simpanForm()} disabled={simpanJalan}>
-              {simpanJalan ? 'Menyimpan…' : 'Simpan'}
-            </Button>
-            <Button variant="secondary" onClick={() => setForm(null)} disabled={simpanJalan}>
-              Batal
-            </Button>
-          </div>
-        }
-      >
-        {form && (
-          <form
-            className="space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void simpanForm();
-            }}
-          >
-            {errForm.length > 0 && (
-              <div role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-                <p className="font-semibold">Data belum valid:</p>
-                <ul className="mt-1 list-disc pl-5">
-                  {errForm.map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {semuaKolom.map((k) => {
-              const v = form.nilai[k.nama] ?? '';
-              const set = (x: string) => setForm((f) => (f ? { ...f, nilai: { ...f.nilai, [k.nama]: x } } : f));
-              const label = `${k.nama.replace(/_/g, ' ')}${k.wajib ? ' *' : ''}`;
-              const kunci = j.tipe === 'master' && j.channel && k.nama === 'channel';
-              const opsi = k.jenis === 'bool' ? ['YA', 'TIDAK'] : PILIHAN[k.nama];
-              return (
-                <Field key={k.nama} label={label} hint={kunci ? `Dikunci ke ${j.channel} (submenu ${j.menu})` : undefined}>
-                  {opsi ? (
-                    <select
-                      value={v}
-                      disabled={!!kunci}
-                      onChange={(e) => set(e.target.value)}
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50"
-                    >
-                      <option value="">{k.wajib ? 'Pilih…' : '(kosong)'}</option>
-                      {opsi.map((o) => (
-                        <option key={o} value={o}>
-                          {o}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <Input
-                      value={v}
-                      onChange={(e) => set(e.target.value)}
-                      type={k.jenis === 'date' ? 'date' : 'text'}
-                      inputMode={k.jenis === 'int' ? 'numeric' : undefined}
-                      autoComplete="off"
-                    />
-                  )}
-                </Field>
-              );
-            })}
-            <button type="submit" className="sr-only">
-              Simpan
-            </button>
-          </form>
-        )}
-      </Sheet>
+      {form && (
+        <FormBaris
+          key={form.id}
+          j={j}
+          kolom={semuaKolom}
+          indeks={form.indeks}
+          awal={form.awal}
+          sibuk={simpanJalan}
+          onTutup={tutupForm}
+          onSimpan={simpanForm}
+        />
+      )}
     </AdminPage>
   );
 }
+
+interface FormProps {
+  j: JenisData;
+  kolom: Kolom[];
+  indeks: number | null;
+  awal: Record<string, string>;
+  sibuk: boolean;
+  onTutup: () => void;
+  onSimpan: (indeks: number | null, nilai: Record<string, string>) => Promise<string[]>;
+}
+
+/** Form tambah/edit satu baris. Isian disimpan lokal di sini → ketikan tidak me-render tabel induk. */
+function FormBaris({ j, kolom, indeks, awal, sibuk, onTutup, onSimpan }: FormProps) {
+  const [nilai, setNilai] = useState(awal);
+  const [err, setErr] = useState<string[]>([]);
+  const set = useCallback((nama: string, x: string) => setNilai((n) => ({ ...n, [nama]: x })), []);
+  const simpan = async () => setErr(await onSimpan(indeks, nilai));
+  const tutup = useCallback(() => {
+    if (!sibuk) onTutup();
+  }, [sibuk, onTutup]);
+
+  return (
+    <Sheet
+      open
+      onClose={tutup}
+      title={indeks === null ? `Tambah ${j.menu}` : `Edit ${j.menu} · baris ${indeks + 1}`}
+      footer={
+        <div className="flex gap-2">
+          <Button className="flex-1" onClick={() => void simpan()} disabled={sibuk}>
+            {sibuk ? 'Menyimpan…' : 'Simpan'}
+          </Button>
+          <Button variant="secondary" onClick={onTutup} disabled={sibuk}>
+            Batal
+          </Button>
+        </div>
+      }
+    >
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void simpan();
+        }}
+      >
+        {err.length > 0 && (
+          <div role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="font-semibold">Data belum valid:</p>
+            <ul className="mt-1 list-disc pl-5">
+              {err.map((e) => (
+                <li key={e}>{e}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {kolom.map((k) => (
+          <FieldBaris
+            key={k.nama}
+            k={k}
+            value={nilai[k.nama] ?? ''}
+            onChange={set}
+            kunci={j.tipe === 'master' && j.channel && k.nama === 'channel' ? `Dikunci ke ${j.channel} (submenu ${j.menu})` : null}
+          />
+        ))}
+        <button type="submit" className="sr-only">
+          Simpan
+        </button>
+      </form>
+    </Sheet>
+  );
+}
+
+/** Satu field; memo → hanya field yang diketik yang di-render ulang. */
+const FieldBaris = memo(function FieldBaris({ k, value, onChange, kunci }: { k: Kolom; value: string; onChange: (nama: string, v: string) => void; kunci: string | null }) {
+  const label = `${k.nama.replace(/_/g, ' ')}${k.wajib ? ' *' : ''}`;
+  const opsi = k.jenis === 'bool' ? ['YA', 'TIDAK'] : PILIHAN[k.nama];
+  return (
+    <Field label={label} hint={kunci ?? undefined}>
+      {opsi ? (
+        <select
+          value={value}
+          disabled={!!kunci}
+          onChange={(e) => onChange(k.nama, e.target.value)}
+          className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50"
+        >
+          <option value="">{k.wajib ? 'Pilih…' : '(kosong)'}</option>
+          {opsi.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <Input
+          value={value}
+          onChange={(e) => onChange(k.nama, e.target.value)}
+          type={k.jenis === 'date' ? 'date' : 'text'}
+          inputMode={k.jenis === 'int' ? 'numeric' : undefined}
+          autoComplete="off"
+        />
+      )}
+    </Field>
+  );
+});
