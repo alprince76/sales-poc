@@ -82,16 +82,16 @@ describe('login & sesi', () => {
   it('password Super Admin mengikuti env (termasuk #) sampai diganti/di-reset di aplikasi; restart membuka kunci', async () => {
     const auth = memoryAuthStore();
     const login = async (pw: string) => (await handleAuth(new Request('https://x/api/auth/login', { method: 'POST', body: JSON.stringify({ email: 'admin@perusahaan.co.id', password: pw }) }), auth)).status;
-    await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'admin#123' });
-    expect(await login('admin#123')).toBe(200);
+    await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'contoh#Rahasia1' });
+    expect(await login('contoh#Rahasia1')).toBe(200);
     // 5× salah → terkunci; "restart server" (siapkan ulang) membuka kunci akun env.
     for (let i = 0; i < 5; i++) await login('salah');
-    expect(await login('admin#123')).toBe(429);
-    await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'admin#123' });
-    expect(await login('admin#123')).toBe(200);
+    expect(await login('contoh#Rahasia1')).toBe(429);
+    await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'contoh#Rahasia1' });
+    expect(await login('contoh#Rahasia1')).toBe(200);
     // Env diubah → ikut berubah.
     await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'baru$456' });
-    expect(await login('admin#123')).toBe(401);
+    expect(await login('contoh#Rahasia1')).toBe(401);
     expect(await login('baru$456')).toBe(200);
     // Ganti di aplikasi → env tidak menimpa lagi.
     const l = await handleAuth(new Request('https://x/api/auth/login', { method: 'POST', body: JSON.stringify({ email: 'admin@perusahaan.co.id', password: 'baru$456' }) }), auth);
@@ -108,8 +108,8 @@ describe('login & sesi', () => {
     await auth.siapkan({});
     await auth.simpanPengguna({ id: 'lama', nama: 'SA', email: 'admin@perusahaan.co.id', kode_salesman: null, hash: await hashSandi('admin'), peran_id: 'super_admin', lingkup: [], aktif: true, wajib_ganti: true, login_terakhir: null });
     for (let i = 0; i < 5; i++) await auth.gagalLogin('e:admin@perusahaan.co.id', true);
-    await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'admin#123' });
-    const r = await handleAuth(new Request('https://x/api/auth/login', { method: 'POST', body: JSON.stringify({ email: 'admin@perusahaan.co.id', password: 'admin#123' }) }), auth);
+    await auth.siapkan({ SUPERADMIN_EMAIL: 'admin@perusahaan.co.id', SUPERADMIN_PASSWORD: 'contoh#Rahasia1' });
+    const r = await handleAuth(new Request('https://x/api/auth/login', { method: 'POST', body: JSON.stringify({ email: 'admin@perusahaan.co.id', password: 'contoh#Rahasia1' }) }), auth);
     expect(r.status).toBe(200);
     expect(((await r.json()) as { data: { pengguna: { wajib_ganti: boolean } } }).data.pengguna.wajib_ganti).toBe(false);
   });

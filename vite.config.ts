@@ -49,7 +49,7 @@ function apiData(env: Record<string, string | undefined>): Plugin {
 
 /**
  * Baca nilai env APA ADANYA dari file .env (tanpa komentar "#" / variabel "$" ala dotenv),
- * supaya password seperti admin#123 tidak terpotong jadi "admin". Kutip pembungkus dibuang.
+ * supaya password yang berisi # tidak terpotong. Kutip pembungkus dibuang.
  */
 function envMentah(mode: string, kunci: string[]): Record<string, string> {
   const out: Record<string, string> = {};
