@@ -1,6 +1,6 @@
 import { CalendarX2, CheckCircle2, ChevronRight, Store } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { hitungKunjungan, type BarisKunjungan } from '../lib/billing';
+import { bandingPrioritas, hitungKunjungan, type BarisKunjungan } from '../lib/billing';
 import type { ISODate } from '../lib/dates';
 import { formatRupiah } from '../lib/format';
 import type { StatusKunjungan, UrutanMode } from '../lib/types';
@@ -14,7 +14,7 @@ export function useKunjungan(kodeSalesman: string, D: ISODate, urutan: UrutanMod
   return useMemo(() => hitungKunjungan(data, kodeSalesman, D, { urutan, fakturIdx, masterIdx }), [data, kodeSalesman, D, urutan, fakturIdx, masterIdx]);
 }
 
-function KartuToko({ b, kunjungan, onClick }: { b: BarisKunjungan; kunjungan?: StatusKunjungan; onClick: () => void }) {
+function KartuToko({ b, kunjungan, onClick, rinci }: { b: BarisKunjungan; kunjungan?: StatusKunjungan; onClick: () => void; rinci?: boolean }) {
   const selesai = isSelesai(kunjungan);
   const { masterIdx } = useData();
   const m = masterIdx.get(b.kode_toko);
@@ -48,6 +48,25 @@ function KartuToko({ b, kunjungan, onClick }: { b: BarisKunjungan; kunjungan?: S
             <BayarBadge tipe={m?.tipe_bayar} top={m?.top_hari} />
             {selesai && <Badge tone="green">Selesai</Badge>}
           </div>
+          {rinci && b.perluDitagih && (
+            <ul className="mt-2 space-y-0.5 rounded-lg bg-red-50/60 px-2 py-1.5 text-xs text-slate-700">
+              {b.faktur
+                .filter((f) => f.status !== 'BELUM_JATUH_TEMPO')
+                .slice(0, 4)
+                .map((f) => (
+                  <li key={f.no_faktur} className="flex flex-wrap justify-between gap-x-2">
+                    <span className="break-all font-mono">{f.no_faktur}</span>
+                    <span className={cn('tabular', f.status === 'OVERDUE' ? 'text-red-700' : 'text-orange-700')}>
+                      {f.status === 'OVERDUE' ? `+${f.hariTerlambat} hr · ` : 'JT hari ini · '}
+                      {formatRupiah(f.sisa_tagihan)}
+                    </span>
+                  </li>
+                ))}
+              {b.faktur.filter((f) => f.status !== 'BELUM_JATUH_TEMPO').length > 4 && (
+                <li className="text-slate-500">+{b.faktur.filter((f) => f.status !== 'BELUM_JATUH_TEMPO').length - 4} faktur lain</li>
+              )}
+            </ul>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <span className={cn('text-sm font-semibold tabular', b.perluDitagih ? 'text-slate-900' : 'text-slate-400')}>
@@ -64,17 +83,32 @@ function KartuToko({ b, kunjungan, onClick }: { b: BarisKunjungan; kunjungan?: S
  * Tampilan "Kunjungan Hari Ini". Dipakai di Sales (onPilih → buka halaman kunjungan)
  * dan Admin Rute (tanpa onPilih → detail inline).
  */
-export function KunjunganPanel({ kodeSalesman, D, onPilih }: { kodeSalesman: string; D: ISODate; onPilih?: (kode: string) => void }) {
+export function KunjunganPanel({
+  kodeSalesman,
+  D,
+  onPilih,
+}: {
+  kodeSalesman: string;
+  D: ISODate;
+  /** step: buka langsung di langkah ini (mis. 'collection' saat memilih dari filter Perlu Ditagih). */
+  onPilih?: (kode: string, step?: string) => void;
+}) {
   const { aktivitas } = useData();
-  // All = semesta PJP (urut nama), Route = urutan kunjungan.
-  const [sub, setSub] = useState<'all' | 'route'>('all');
+  // All = semesta PJP (urut nama), Route = urutan kunjungan, Tagih = hanya toko yang perlu ditagih (urut prioritas).
+  const [sub, setSub] = useState<'all' | 'route' | 'tagih'>('all');
   const [dipilih, setDipilih] = useState<string | null>(null);
   const hasil = useKunjungan(kodeSalesman, D, 'rute');
 
   const kodeList = hasil.baris.map((b) => b.kode_toko);
   const prog = progres(aktivitas.kunjungan, kodeSalesman, D, kodeList);
   const kj = (kode: string) => cariKunjungan(aktivitas.kunjungan, kodeSalesman, kode, D);
-  const tampil = sub === 'route' ? hasil.baris : [...hasil.baris].sort((a, b) => a.nama_toko.localeCompare(b.nama_toko) || a.kode_toko.localeCompare(b.kode_toko));
+  const tampil =
+    sub === 'route'
+      ? hasil.baris
+      : sub === 'tagih'
+        ? [...hasil.baris].filter((b) => b.perluDitagih).sort(bandingPrioritas)
+        : [...hasil.baris].sort((a, b) => a.nama_toko.localeCompare(b.nama_toko) || a.kode_toko.localeCompare(b.kode_toko));
+  const tagih = () => setSub((s) => (s === 'tagih' ? 'all' : 'tagih'));
 
   if (!onPilih && dipilih) return <DetailTokoView kodeToko={dipilih} D={D} onBack={() => setDipilih(null)} />;
 
@@ -82,8 +116,21 @@ export function KunjunganPanel({ kodeSalesman, D, onPilih }: { kodeSalesman: str
     <div className="space-y-3">
       <div className="grid grid-cols-[1fr_1fr_1.7fr] gap-2">
         <SummaryCard label="Kunjungan" value={hasil.jumlahKunjungan} />
-        <SummaryCard label="Perlu Ditagih" value={hasil.jumlahPerluDitagih} accent={hasil.jumlahPerluDitagih ? 'red' : undefined} />
-        <SummaryCard label="Total Tagihan" value={<span className="text-[15px]">{formatRupiah(hasil.totalTagihan)}</span>} />
+        <SummaryCard
+          label="Perlu Ditagih"
+          value={hasil.jumlahPerluDitagih}
+          accent={hasil.jumlahPerluDitagih ? 'red' : undefined}
+          hint={hasil.jumlahPerluDitagih ? (sub === 'tagih' ? 'Tutup' : 'Lihat') : undefined}
+          onClick={hasil.jumlahPerluDitagih ? tagih : undefined}
+          aktif={sub === 'tagih'}
+        />
+        <SummaryCard
+          label="Total Tagihan"
+          value={<span className="text-[15px]">{formatRupiah(hasil.totalTagihan)}</span>}
+          hint={hasil.jumlahPerluDitagih ? 'Tap untuk lihat' : undefined}
+          onClick={hasil.jumlahPerluDitagih ? tagih : undefined}
+          aktif={sub === 'tagih'}
+        />
       </div>
 
       {hasil.jumlahKunjungan === 0 ? (
@@ -109,14 +156,26 @@ export function KunjunganPanel({ kodeSalesman, D, onPilih }: { kodeSalesman: str
             options={[
               { value: 'all', label: `All (${hasil.jumlahKunjungan})` },
               { value: 'route', label: 'Route' },
+              { value: 'tagih', label: `Perlu ditagih (${hasil.jumlahPerluDitagih})` },
             ]}
           />
+          {sub === 'tagih' && (
+            <p className="px-1 text-xs text-slate-600">
+              {hasil.jumlahPerluDitagih} toko · total {formatRupiah(hasil.totalTagihan)} · urut overdue terlama. Tap toko untuk langsung ke Collection.
+            </p>
+          )}
           {tampil.length === 0 ? (
             <EmptyState icon={<Store size={20} />} title="Tidak ada toko" />
           ) : (
             <ul className="space-y-2">
               {tampil.map((b) => (
-                <KartuToko key={b.kode_toko} b={b} kunjungan={kj(b.kode_toko)} onClick={() => (onPilih ? onPilih(b.kode_toko) : setDipilih(b.kode_toko))} />
+                <KartuToko
+                  key={b.kode_toko}
+                  b={b}
+                  kunjungan={kj(b.kode_toko)}
+                  rinci={sub === 'tagih'}
+                  onClick={() => (onPilih ? onPilih(b.kode_toko, sub === 'tagih' ? 'collection' : undefined) : setDipilih(b.kode_toko))}
+                />
               ))}
             </ul>
           )}

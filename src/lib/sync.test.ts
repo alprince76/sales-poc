@@ -1,5 +1,7 @@
 /** v8: sinkron data upload admin (client ↔ API) + upload Store/PJP per channel. */
 import { describe, expect, it } from 'vitest';
+import { sesiUji } from '../../netlify/lib/auth';
+const SA = sesiUji();
 import { handle } from '../../netlify/lib/handler';
 import { memoryStore } from '../../netlify/lib/store';
 import { SEMUA_TIPE } from './parse';
@@ -8,7 +10,7 @@ import type { Kunjungan, MasterToko } from './types';
 import { gabungMaster, gabungPjp, hitungSegmen } from './upload';
 
 const store = memoryStore();
-const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store);
+const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store, SA);
 
 describe('client ↔ API (in-memory)', () => {
   it('simpan (gzip) → meta & data bisa dibaca perangkat lain', async () => {
@@ -27,7 +29,7 @@ describe('client ↔ API (in-memory)', () => {
       tipeDikirim.push(h.get('content-type') ?? '');
       let body = init?.body as BodyInit | undefined;
       if (h.get('x-body-encoding') === 'gzip') body = new TextDecoder().decode(await new Response(body).arrayBuffer());
-      return handle(new Request(`http://x${String(input)}`, { ...init, body }), store);
+      return handle(new Request(`http://x${String(input)}`, { ...init, body }), store, SA);
     };
     const rows = [{ kode_sku: '124024', satuan: 'Pcs', moq: 6 }];
     const info = await simpanData('rules', rows, proxyRusak);
@@ -78,5 +80,48 @@ describe('upload Store / PJP per channel', () => {
     expect(g.diLuar).toBe(1);
     expect(hitungSegmen({ master, pjp: lama } as never, 'pjp', 'GT')).toBe(2);
     expect(hitungSegmen({ master, pjp: lama } as never, 'master', 'MT')).toBe(2);
+  });
+});
+
+describe('v15: upload tambah & perbarui (upsert)', () => {
+  it('MOQ: kunci sama diganti, kunci baru ditambah, sisanya tetap; isi sama dihitung "sama"', async () => {
+    const { gabungUpsert } = await import('./upload');
+    const lama = [
+      { kode_sku: '1', satuan: 'Pcs', moq: 1 },
+      { kode_sku: '2', satuan: 'Pcs', moq: 3 },
+      { kode_sku: '3', satuan: 'Pcs', moq: 6 },
+    ];
+    const g = gabungUpsert('rules', lama, [{ kode_sku: '2', satuan: 'Pcs', moq: 12 }, { kode_sku: '3', satuan: 'Pcs', moq: 6 }, { kode_sku: '9', satuan: 'Pcs', moq: 2 }]);
+    expect(g.rows.map((r) => `${r.kode_sku}:${r.moq}`)).toEqual(['1:1', '2:12', '3:6', '9:2']);
+    expect(g).toMatchObject({ baru: 1, diperbarui: 1, sama: 1, tetap: 1 });
+  });
+  it('Store GT: toko MT tetap; kode yang sama dari MT dipindah ke GT dan dihitung', async () => {
+    const { gabungUpsert } = await import('./upload');
+    const lama = [
+      { kode_toko: 'A', nama_toko: 'A', channel: 'GT' },
+      { kode_toko: 'B', nama_toko: 'B', channel: 'MT' },
+    ] as never[];
+    const g = gabungUpsert('master', lama, [{ kode_toko: 'b', nama_toko: 'B baru' }, { kode_toko: 'C', nama_toko: 'C' }] as never[], 'GT');
+    expect(g.rows.map((r: { kode_toko: string; channel: string }) => `${r.kode_toko}:${r.channel}`)).toEqual(['A:GT', 'b:GT', 'C:GT']);
+    expect(g).toMatchObject({ baru: 1, diperbarui: 1, tetap: 1, pindahChannel: 1 });
+  });
+  it('Histori: kunci toko+SKU+tanggal (qty diperbarui, tanggal lain ditambah)', async () => {
+    const { gabungUpsert } = await import('./upload');
+    const lama = [{ kode_toko: 'T', kode_sku: '1', tanggal_po: '2026-10-01', qty: 2 }];
+    const g = gabungUpsert('histori', lama, [{ kode_toko: 'T', kode_sku: '1', tanggal_po: '2026-10-01', qty: 5 }, { kode_toko: 'T', kode_sku: '1', tanggal_po: '2026-10-08', qty: 1 }]);
+    expect(g.rows.map((r) => r.qty)).toEqual([5, 1]);
+    expect(g).toMatchObject({ baru: 1, diperbarui: 1, tetap: 0 });
+  });
+  it('label MOQ: tanpa baris MOQ → tidak ada label "Min. 1" palsu', async () => {
+    const { gabungProduk, labelMoq } = await import('./order');
+    const [a, b] = gabungProduk(
+      [
+        { kode_sku: '128678', nama_sku: 'Yupi Bears', divisi: 'CP YUPI', harga: 8800 },
+        { kode_sku: '123472', nama_sku: 'Bolicious', divisi: 'CP YUPI', harga: 4692 },
+      ],
+      [{ kode_sku: ' 128678 ', satuan: 'Pcs', moq: 3 }],
+    );
+    expect(labelMoq(a)).toBe('Min. 3 Pcs/item');
+    expect(labelMoq(b)).toBeNull();
   });
 });

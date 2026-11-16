@@ -8,30 +8,43 @@ import { analisaSheet, bacaWorkbook, buatWorkbook, deteksiKolom, labelKolom, par
 import { cekJenisFile, pesanBacaFile, pesanGagal, teksGagal, type PesanGagal } from '../../lib/pesan';
 import { RemoteError } from '../../lib/remote';
 import type { DataSet, Kunjungan, MasterToko } from '../../lib/types';
-import { gabungMaster, gabungPjp, hitungSegmen, ringkasUpload, type RingkasanUpload } from '../../lib/upload';
-import { formatTimestamp, INTERVAL_SINKRON, useData } from '../../state';
+import { gabungMaster, gabungPjp, gabungUpsert, hitungSegmen, ringkasUpload, type RingkasanUpload } from '../../lib/upload';
+import { skuTanpaMoq } from '../../lib/order';
+import { formatTimestamp, INTERVAL_AKTIVITAS, INTERVAL_SINKRON, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
 import { indeksJenis, JENIS_DATA, type JenisData } from '../../lib/jenisData';
+import { useIzin } from '../../auth';
 
 type Kartu = JenisData;
 
 export function DataPage() {
   const { resetDummy, resetAktivitas, aktivitas, storageWarning, koneksi, sinkron } = useData();
+  const izinData = useIzin('data.upload');
   const toast = useToast();
   const jumlahAkt = aktivitas.penagihan.length + aktivitas.po.length + aktivitas.stok.length + aktivitas.kunjungan.length;
   const [cek, setCek] = useState(false);
   return (
     <AdminPage
       title="Data & Upload"
-      description="Upload XLSX/CSV per jenis data. Setelah disimpan, data langsung dipakai aplikasi sales di semua perangkat."
+      description="Upload XLSX/CSV per jenis data. Default tambah & perbarui: data lama tetap, baris dengan kunci sama (mis. kode SKU) diperbarui. Setelah disimpan langsung dipakai aplikasi sales di semua perangkat."
       actions={
+        izinData.hapus ? (
         <>
           <Button
             variant="secondary"
-            onClick={() => {
-              if (window.confirm(`Hapus semua aktivitas SR (${jumlahAkt} catatan penagihan, stok, PO, kunjungan) di browser ini?`)) {
-                resetAktivitas();
-                toast('Aktivitas dihapus', 'info');
+            onClick={async () => {
+              const server = koneksi === 'server';
+              const ok = window.confirm(
+                server
+                  ? `Hapus SEMUA aktivitas sales (${jumlahAkt} catatan PO, penagihan, cek stok, kunjungan) di database? Semua perangkat ikut terhapus dan tidak bisa dikembalikan.`
+                  : `Hapus semua aktivitas sales (${jumlahAkt} catatan) di browser ini?`,
+              );
+              if (!ok) return;
+              try {
+                const mode = await resetAktivitas();
+                toast(mode === 'server' ? 'Aktivitas dihapus di semua perangkat' : 'Aktivitas dihapus di browser ini', 'info');
+              } catch (e) {
+                toast(teksGagal(e, 'reset'), 'error');
               }
             }}
           >
@@ -58,6 +71,7 @@ export function DataPage() {
             <RotateCcw size={16} /> Reset ke data dummy
           </Button>
         </>
+        ) : undefined
       }
     >
       <StatusServer
@@ -83,6 +97,7 @@ export function DataPage() {
 }
 
 function StatusServer({ cek, onCek }: { cek: boolean; onCek: () => void }) {
+  const izinTambah = useIzin('data.upload').tambah;
   const { koneksi, infoKoneksi } = useData();
   if (koneksi === 'cek') return null;
   if (koneksi === 'lokal')
@@ -107,12 +122,12 @@ function StatusServer({ cek, onCek }: { cek: boolean; onCek: () => void }) {
     <div role="status" className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
       <Cloud size={18} className="shrink-0" />
       <p className="min-w-0 flex-1">
-        <span className="font-semibold">Tersambung ke database.</span> Upload & edit di Master Data langsung tersimpan; aplikasi sales mengecek pembaruan tiap {INTERVAL_SINKRON / 1000} detik & saat dibuka.
+        <span className="font-semibold">Tersambung ke database.</span> Upload & edit Master Data langsung tersimpan. PO, penagihan, cek stok & kunjungan dari semua HP sales masuk otomatis (±{INTERVAL_AKTIVITAS / 1000} detik); master data dicek tiap {INTERVAL_SINKRON / 1000} detik.
       </p>
       <Button size="sm" variant="secondary" onClick={onCek} disabled={cek}>
         <RefreshCw size={14} className={cek ? 'animate-spin' : ''} /> Cek pembaruan
       </Button>
-      <SeedServer />
+      {izinTambah && <SeedServer />}
     </div>
   );
 }
@@ -175,12 +190,14 @@ const namaFile = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/
 function UploadCard({ kartu }: { kartu: Kartu }) {
   const { tipe, channel } = kartu;
   const { data, raw, updatedAt, sumber, versi, replace } = useData();
+  const izinUpload = useIzin('data.upload').tambah;
   const [menyimpan, setMenyimpan] = useState(false);
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [berkas, setBerkas] = useState<Berkas | null>(null);
   const [peta, setPeta] = useState<PetaKolom>(() => bacaPeta(kartu.id));
   const [bukaPeta, setBukaPeta] = useState(false);
+  const [gantiSemua, setGantiSemua] = useState(false);
   const [tolak, setTolak] = useState<PesanGagal | null>(null);
   const [hasil, setHasil] = useState<RingkasanUpload | null>(null);
   const [drag, setDrag] = useState(false);
@@ -188,9 +205,14 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
   const parsed = useMemo(() => (berkas ? parseAnalisa(tipe, berkas.a, peta) : null), [berkas, peta, tipe]);
   const pending = berkas && parsed ? { file: berkas.file, hasil: parsed } : null;
   const perluPeta = !!parsed?.kolomHilang.length;
+  const pratinjau = useMemo(
+    () => (parsed && !perluPeta && parsed.valid.length ? gabungUpsert(tipe, raw[tipe] as unknown[], parsed.valid, channel) : null),
+    [parsed, perluPeta, raw, tipe, channel],
+  );
 
   const reset = () => {
     setBerkas(null);
+    setGantiSemua(false);
     setBukaPeta(false);
     if (inputRef.current) inputRef.current.value = '';
   };
@@ -236,7 +258,16 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
     const valid = pending.hasil.valid;
     let rows = valid as DataSet[typeof tipe];
     const catatan: string[] = [];
-    if (tipe === 'master' && channel) {
+    let gabung: ((terbaru: DataSet[typeof tipe]) => DataSet[typeof tipe]) | undefined;
+    if (!gantiSemua) {
+      // Tambah & perbarui: data lama tetap; kunci sama diganti isi file; kunci baru ditambah.
+      const hitung = (lama: readonly unknown[]) => gabungUpsert(tipe, lama, valid, channel);
+      const g = hitung(raw[tipe] as unknown[]);
+      rows = g.rows as DataSet[typeof tipe];
+      gabung = (terbaru) => hitung(terbaru as unknown[]).rows as DataSet[typeof tipe];
+      catatan.push(`${g.baru.toLocaleString('id-ID')} baris baru, ${g.diperbarui.toLocaleString('id-ID')} diperbarui, ${g.tetap.toLocaleString('id-ID')} data lama tetap.`);
+      if (g.pindahChannel) catatan.push(`${g.pindahChannel} toko sebelumnya terdaftar di channel lain, sekarang dipindah ke ${channel}.`);
+    } else if (tipe === 'master' && channel) {
       const g = gabungMaster(raw.master, valid as MasterToko[], channel);
       rows = g.rows as DataSet[typeof tipe];
       if (g.dipaksa) catatan.push(`${g.dipaksa} baris ber-channel lain disimpan sebagai ${channel}.`);
@@ -245,9 +276,10 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
       rows = g.rows as DataSet[typeof tipe];
       if (g.diLuar) catatan.push(`${g.diLuar} kunjungan ke toko yang bukan Store ${channel} di Master (tetap disimpan).`);
     }
+    if (gantiSemua && !window.confirm(`Ganti SELURUH ${kartu.nama}${channel ? ` (${channel})` : ''} dengan isi file? Data yang tidak ada di file akan dihapus.`)) return;
     setMenyimpan(true);
     try {
-      const mode = await replace(tipe, rows);
+      const mode = await replace(tipe, rows, gabung ? { gabung } : undefined);
       const r = ringkasUpload(tipe, { ...raw, [tipe]: rows }, { rupiah: formatRupiah, tanggal: formatTanggal });
       setHasil({ ...r, warning: [...catatan, ...r.warning, ...(mode === 'lokal' ? ['Mode lokal: data hanya tersimpan di browser ini, perangkat sales belum ter-update.'] : [])] });
       toast(mode === 'server' ? `${kartu.nama} disimpan ke database` : `${kartu.nama} disimpan (lokal)`);
@@ -287,6 +319,7 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
         <span>Diperbarui {formatTimestamp(updatedAt[tipe])}</span>
       </div>
 
+      {izinUpload && (
       <label
         onDragOver={(e) => {
           e.preventDefault();
@@ -315,6 +348,8 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
           }}
         />
       </label>
+      )}
+      {(tipe === 'rules' || tipe === 'produk') && <TanpaMoq />}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Button size="sm" variant="secondary" onClick={() => unduh(false)}>
           <Download size={14} /> Template
@@ -386,9 +421,23 @@ function UploadCard({ kartu }: { kartu: Kartu }) {
             )}
           </p>
           <RingkasanFile pending={pending} header={berkas!.a.header} kartu={kartu} onPetakan={() => setBukaPeta(true)} />
+          {pratinjau && !gantiSemua && (
+            <p className="mt-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs text-slate-700">
+              Saat disimpan: <b className="text-emerald-700">{pratinjau.baru.toLocaleString('id-ID')} baru</b> ·{' '}
+              <b className="text-brand-700">{pratinjau.diperbarui.toLocaleString('id-ID')} diperbarui</b> · {pratinjau.tetap.toLocaleString('id-ID')} data lama tetap
+              {pratinjau.sama > 0 && <> · {pratinjau.sama.toLocaleString('id-ID')} sama (tidak berubah)</>}
+            </p>
+          )}
+          <label className="mt-2 flex items-start gap-2 text-xs text-slate-600">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-red-600" checked={gantiSemua} onChange={(e) => setGantiSemua(e.target.checked)} />
+            <span>
+              Ganti seluruh data{channel ? ` ${channel}` : ''} (hapus yang tidak ada di file)
+              {gantiSemua && <span className="block font-medium text-red-700">Data lama yang tidak ada di file akan dihapus.</span>}
+            </span>
+          </label>
           <div className="mt-3 flex gap-2">
-            <Button size="sm" onClick={() => void simpan()} disabled={!pending.hasil.valid.length || menyimpan}>
-              {menyimpan ? 'Menyimpan…' : errCount ? `Simpan ${pending.hasil.valid.length.toLocaleString('id-ID')} baris yang benar` : channel ? `Simpan & ganti data ${channel}` : 'Simpan & ganti data'}
+            <Button size="sm" variant={gantiSemua ? 'danger' : 'primary'} onClick={() => void simpan()} disabled={!pending.hasil.valid.length || menyimpan}>
+              {menyimpan ? 'Menyimpan…' : gantiSemua ? 'Ganti semua' : errCount ? `Simpan ${pending.hasil.valid.length.toLocaleString('id-ID')} baris yang benar` : 'Simpan (tambah & perbarui)'}
             </Button>
             <Button size="sm" variant="secondary" onClick={reset} disabled={menyimpan}>
               Batal
@@ -617,6 +666,32 @@ function RingkasanFile({
           </details>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Banner: SKU di Master SKU yang belum punya MOQ (tampil "tanpa MOQ" di HP sales) + unduh template MOQ yang sudah terisi. */
+function TanpaMoq() {
+  const { raw } = useData();
+  const daftar = useMemo(() => skuTanpaMoq(raw.produk, raw.rules), [raw.produk, raw.rules]);
+  if (!daftar.length) return null;
+  const unduh = () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(
+      daftar.map((p) => ({ kode_sku: p.kode_sku, nama_sku: p.new_material?.trim() || p.nama_sku, satuan: 'Pcs', moq: '', isi_karton: '' })),
+      { header: ['kode_sku', 'nama_sku', 'satuan', 'moq', 'isi_karton'] },
+    );
+    ws['!cols'] = [{ wch: 12 }, { wch: 48 }, { wch: 8 }, { wch: 8 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws, SKEMA.rules.sheet);
+    XLSX.writeFile(wb, `MOQ_belum_diisi_${daftar.length}_SKU.xlsx`);
+  };
+  return (
+    <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <b>{daftar.length.toLocaleString('id-ID')} SKU belum punya MOQ</b>. Di HP sales SKU ini tampil tanpa label "Min. … Pcs".
+      <button type="button" onClick={unduh} className="ml-1 font-semibold text-amber-800 underline underline-offset-2">
+        Unduh daftar
+      </button>
+      , isi kolom moq, lalu upload di kartu Data MOQ GT (data lama tetap aman).
     </div>
   );
 }

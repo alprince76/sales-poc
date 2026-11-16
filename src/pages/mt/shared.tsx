@@ -102,7 +102,7 @@ export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISO
           </div>
           {s.warningAwal !== 'BELUM_PERNAH' && <div className={cn('mt-1 text-xs', s.warning ? 'font-medium text-red-700' : 'text-slate-500')}>{teksTerakhirOrder(s)}</div>}
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {s.listed ? <Badge tone="brand" dot={false}>Listed MSL</Badge> : <Badge tone="gray" dot={false}>Tidak listed</Badge>}
+            {s.listed ? <Badge tone="brand" dot={false}>SKU Listed</Badge> : <Badge tone="gray" dot={false}>Tidak listed</Badge>}
           </div>
         </div>
         {qty === 0 && (

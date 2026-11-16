@@ -6,6 +6,20 @@ import { gabungProduk, type ProdukLengkap } from './lib/order';
 import { bacaDataSet, bacaWorkbook, SEMUA_TIPE, type TipeData } from './lib/parse';
 import { ambilData, ambilMeta, bandingVersi, hapusData, RemoteError, simpanData, ubahBaris as ubahBarisServer, type MetaServer, type OpBaris } from './lib/remote';
 import { terapkan } from './lib/jenisData';
+import {
+  bedaAkt,
+  buangTerkirim,
+  gabungServer,
+  kirimAkt,
+  nomorPO,
+  resetAktServer,
+  saringSetelah,
+  semuaItem,
+  tambahOutbox,
+  tarikAkt,
+  TUMPANG_SEQ,
+  type ItemKirim,
+} from './lib/sinkronAktivitas';
 import type {
   Aktivitas,
   CekStok,
@@ -15,6 +29,7 @@ import type {
   MasterToko,
   Penagihan,
   PurchaseOrder,
+  Retur,
 } from './lib/types';
 import { selesaikan, tandaiLangkah } from './lib/visit';
 
@@ -23,8 +38,37 @@ export const DEFAULT_DATE = '2026-11-09';
 const DUMMY_URL = `${import.meta.env.BASE_URL}Dummy_ROVI_PJP.xlsx`;
 const KEY_META = 'svdi-v2-meta';
 const KEY_DATA = (t: TipeData) => `svdi-v2-data-${t}`;
-const KEY_AKT = 'svdi-v2-aktivitas';
-const KEY_KERANJANG = 'svdi-v2-keranjang-mt';
+/** Aktivitas & antrean kirim disimpan per akun (HP bisa dipakai bergantian; data akun lain tidak ikut tampil). */
+const KEY_AKT_LAMA = 'svdi-v2-aktivitas';
+const kunciAkun = (penggunaId: string) => ({
+  AKT: `svdi-v2-aktivitas:${penggunaId}`,
+  KERANJANG: `svdi-v2-keranjang-mt:${penggunaId}`,
+  OUTBOX: `svdi-v2-akt-outbox:${penggunaId}`,
+  SINK: `svdi-v2-akt-sinkron:${penggunaId}`,
+});
+
+/** Aktivitas awal akun ini: simpanan per akun, atau (sekali) data lama perangkat sebelum ada login — hanya yang dalam lingkup akun. */
+function aktivitasAwal(penggunaId: string, lingkup: string[] | null): Aktivitas {
+  const k = kunciAkun(penggunaId);
+  const ada = lsGet<Aktivitas>(k.AKT);
+  if (ada) return { ...EMPTY_AKT, ...ada };
+  const lama = lsGet<Aktivitas>(KEY_AKT_LAMA);
+  if (!lama) return EMPTY_AKT;
+  const boleh = (x: { kode_salesman?: string }) => !lingkup || lingkup.includes(normKode(x.kode_salesman));
+  const pindah: Aktivitas = {
+    penagihan: (lama.penagihan ?? []).filter(boleh),
+    stok: (lama.stok ?? []).filter(boleh),
+    po: (lama.po ?? []).filter(boleh),
+    kunjungan: (lama.kunjungan ?? []).filter(boleh),
+    retur: (lama.retur ?? []).filter(boleh),
+  };
+  lsSet(k.AKT, pindah);
+  lsDel(KEY_AKT_LAMA);
+  return pindah;
+}
+/** Aktivitas lapangan (PO, penagihan, …) ditarik lebih sering daripada master supaya dashboard admin cepat ter-update. */
+export const INTERVAL_AKTIVITAS = 15_000;
+type SinkAkt = { seq: number; reset: number; migrasi: boolean; terakhir: string | null };
 
 export type Channel = 'GT' | 'MT';
 /** kode_toko → (kode_sku → qty). */
@@ -44,7 +88,7 @@ export const INTERVAL_SINKRON = 60_000;
 
 const semua = <V,>(v: V) => Object.fromEntries(SEMUA_TIPE.map((t) => [t, v])) as Record<TipeData, V>;
 const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [], price: [] };
-const EMPTY_AKT: Aktivitas = { penagihan: [], stok: [], po: [], kunjungan: [] };
+const EMPTY_AKT: Aktivitas = { penagihan: [], stok: [], po: [], kunjungan: [], retur: [] };
 const metaKosong = (): Meta => ({ sumber: semua<Sumber>('dummy'), updatedAt: semua<string | null>(null), version: semua<number | null>(null) });
 const salinMeta = (m: Meta): Meta => ({ sumber: { ...m.sumber }, updatedAt: { ...m.updatedAt }, version: { ...m.version } });
 /** Meta lama (v2: sumber 'upload') → v3. */
@@ -142,7 +186,18 @@ interface Ctx {
    * Ganti semua baris satu jenis data (upload Excel / seed). Mode server: ke DB dulu (gagal → throw).
    * hanyaBilaKosong: hanya bila jenis ini belum ada di DB (seed; RemoteError 409 bila sudah ada).
    */
-  replace: <K extends TipeData>(tipe: K, rows: DataSet[K], opsi?: { hanyaBilaKosong?: boolean }) => Promise<'server' | 'lokal'>;
+  replace: <K extends TipeData>(
+    tipe: K,
+    rows: DataSet[K],
+    opsi?: {
+      hanyaBilaKosong?: boolean;
+      /**
+       * Upload "tambah & perbarui": hitung ulang baris dari data server terbaru. Bila data di server berubah
+       * sejak dimuat (admin lain menyimpan), data terbaru diambil lalu digabung ulang — tidak menimpa perubahan orang lain.
+       */
+      gabung?: (terbaru: DataSet[K]) => DataSet[K];
+    },
+  ) => Promise<'server' | 'lokal'>;
   /**
    * CRUD satu baris (Master Data): `indeks` di raw[tipe] (null = tambah), `baru` null = hapus.
    * Optimistic: tampilan langsung berubah; dikirim ke DB berurutan di belakang; gagal → dibatalkan & throw.
@@ -152,8 +207,17 @@ interface Ctx {
   menyimpan: number;
   /** Kembali ke data dummy. Mode server: semua data di DB dihapus. */
   resetDummy: () => Promise<void>;
-  resetAktivitas: () => void;
+  /** Hapus semua aktivitas (di database bila tersambung → semua perangkat). */
+  resetAktivitas: () => Promise<'server' | 'lokal'>;
+  /** Aktivitas yang tercatat di perangkat ini tapi belum terkirim ke database (offline / gagal kirim). */
+  aktTertunda: number;
+  /** Terakhir berhasil sinkron aktivitas dengan database (ISO) atau null. */
+  aktTerakhir: string | null;
+  sinkronAktivitas: () => Promise<void>;
   tambahPenagihan: (p: Penagihan) => void;
+  /** Simpan retur (satu per id; simpan ulang dengan id sama = ganti). */
+  simpanRetur: (r: Retur) => void;
+  hapusRetur: (id: string) => void;
   simpanStok: (s: CekStok) => void;
   submitPO: (po: Omit<PurchaseOrder, 'no_po'>) => PurchaseOrder;
   tandai: (sales: string, toko: string, D: string, langkah: LangkahKunjungan, hasil: HasilLangkah) => void;
@@ -162,11 +226,12 @@ interface Ctx {
 
 const DataContext = createContext<Ctx | null>(null);
 
-export function DataProvider({ children }: { children: ReactNode }) {
+export function DataProvider({ children, penggunaId, lingkup }: { children: ReactNode; penggunaId: string; lingkup: string[] | null }) {
+  const K = useMemo(() => kunciAkun(penggunaId), [penggunaId]);
   const [raw, setRaw] = useState<DataSet>(EMPTY_DATA);
   const [meta, setMeta] = useState<Meta>(bacaMeta);
-  const [aktivitas, setAktivitas] = useState<Aktivitas>(() => ({ ...EMPTY_AKT, ...(lsGet<Aktivitas>(KEY_AKT) ?? {}) }));
-  const [keranjang, setKeranjang] = useState<KeranjangMT>(() => lsGet<KeranjangMT>(KEY_KERANJANG) ?? {});
+  const [aktivitas, setAktivitas] = useState<Aktivitas>(() => aktivitasAwal(penggunaId, lingkup));
+  const [keranjang, setKeranjang] = useState<KeranjangMT>(() => lsGet<KeranjangMT>(K.KERANJANG) ?? {});
   const [status, setStatus] = useState<Ctx['status']>('loading');
   const [error, setError] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState(false);
@@ -354,11 +419,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
       let mode: 'server' | 'lokal' = 'lokal';
       if (koneksiRef.current === 'server') {
         let info;
+        const m0 = metaRef.current;
+        const base = opsi?.hanyaBilaKosong ? 0 : opsi?.gabung ? (m0.sumber[tipe] === 'server' ? (m0.version[tipe] ?? 0) : 0) : undefined;
         try {
-          info = await simpanData(tipe, rows, fetch, opsi?.hanyaBilaKosong ? 0 : undefined);
+          info = await simpanData(tipe, rows, fetch, base);
         } catch (e) {
-          if (e instanceof RemoteError && e.status === 409) void sinkronRef.current();
-          throw e;
+          if (!(e instanceof RemoteError && e.status === 409)) throw e;
+          if (!opsi?.gabung) {
+            void sinkronRef.current();
+            throw e;
+          }
+          // Data server berubah sejak dimuat → gabung ulang dengan versi terbaru, simpan sekali lagi.
+          const [srv, terbaru] = await Promise.all([ambilMeta(), ambilData(tipe)]);
+          rows = opsi.gabung(terbaru as DataSet[typeof tipe]);
+          info = await simpanData(tipe, rows, fetch, srv[tipe]?.version ?? 0);
         }
         mode = 'server';
         nm.sumber[tipe] = 'server';
@@ -376,6 +450,26 @@ export function DataProvider({ children }: { children: ReactNode }) {
     },
     [cache, simpanMeta],
   );
+
+  // Sinkron aktivitas: segera saat tersambung, tiap INTERVAL_AKTIVITAS, dan saat aplikasi aktif / online lagi.
+  useEffect(() => {
+    if (status !== 'ready' || koneksi !== 'server') return;
+    const jalan = () => void sinkronAktRef.current();
+    jalan();
+    const id = window.setInterval(jalan, INTERVAL_AKTIVITAS);
+    const aktif = () => {
+      if (document.visibilityState === 'visible') jalan();
+    };
+    document.addEventListener('visibilitychange', aktif);
+    window.addEventListener('focus', aktif);
+    window.addEventListener('online', jalan);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', aktif);
+      window.removeEventListener('focus', aktif);
+      window.removeEventListener('online', jalan);
+    };
+  }, [status, koneksi]);
 
   // CRUD per baris: optimistic + antrian berurutan (urutan klik = urutan tulis ke DB).
   const rawRef = useRef(raw);
@@ -445,18 +539,97 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [cache, simpanMeta],
   );
 
-  const updateAkt = useCallback((f: (a: Aktivitas) => Aktivitas) => {
-    setAktivitas((prev) => {
-      const next = f(prev);
-      lsSet(KEY_AKT, next);
-      return next;
-    });
+  // ── Aktivitas lapangan: simpan di HP (offline-first) + kotak keluar → database; perangkat lain menarik delta ──
+  const aktRef = useRef(aktivitas);
+  const outboxRef = useRef<ItemKirim[]>(lsGet<ItemKirim[]>(K.OUTBOX) ?? []);
+  const [aktTertunda, setAktTertunda] = useState(outboxRef.current.length);
+  const sinkAktRef = useRef<SinkAkt>({ seq: 0, reset: 0, migrasi: false, terakhir: null, ...(lsGet<Partial<SinkAkt>>(K.SINK) ?? {}) });
+  const [aktTerakhir, setAktTerakhir] = useState<string | null>(sinkAktRef.current.terakhir);
+
+  const setAktLokal = useCallback((next: Aktivitas) => {
+    if (next === aktRef.current) return;
+    aktRef.current = next;
+    lsSet(K.AKT, next);
+    setAktivitas(next);
   }, []);
+  const setOutbox = useCallback((o: ItemKirim[]) => {
+    outboxRef.current = o;
+    lsSet(K.OUTBOX, o);
+    setAktTertunda(o.length);
+  }, []);
+  const simpanSinkAkt = useCallback((s: SinkAkt) => {
+    sinkAktRef.current = s;
+    lsSet(K.SINK, s);
+    setAktTerakhir(s.terakhir);
+  }, []);
+
+  const aktJalan = useRef(false);
+  const aktLagi = useRef(false);
+  /** Kirim outbox + tarik perubahan dari perangkat lain. Satu proses sekaligus; panggilan saat berjalan dijadwalkan ulang. */
+  const sinkronAktivitas = useCallback(async () => {
+    if (aktJalan.current) {
+      aktLagi.current = true;
+      return;
+    }
+    aktJalan.current = true;
+    try {
+      do {
+        aktLagi.current = false;
+        let s = sinkAktRef.current;
+        let h = await tarikAkt(s.seq ? s.seq - TUMPANG_SEQ : 0);
+        if (!s.migrasi) {
+          // Pertama kali tersambung: kirim aktivitas yang sudah tercatat di HP ini (kecuali yang sebelum reset admin).
+          const lama = saringSetelah(aktRef.current, h.reset);
+          setAktLokal(lama);
+          setOutbox(tambahOutbox(outboxRef.current, semuaItem(lama)));
+          s = { ...s, reset: h.reset, migrasi: true };
+        } else if (h.reset !== s.reset) {
+          // Admin me-reset aktivitas di perangkat lain → buang yang lama, simpan yang dicatat setelah reset.
+          const sisa = outboxRef.current.filter((x) => x.t > h.reset);
+          setOutbox(sisa);
+          setAktLokal(gabungServer(EMPTY_AKT, sisa, []));
+          s = { ...s, seq: 0, reset: h.reset };
+          h = await tarikAkt(0);
+        }
+        for (;;) {
+          setAktLokal(gabungServer(aktRef.current, h.items, outboxRef.current));
+          const akhir = h.items.length ? h.items[h.items.length - 1].seq : s.seq;
+          s = { ...s, seq: h.lanjut ? akhir : Math.max(h.seq, s.seq) };
+          if (!h.lanjut) break;
+          h = await tarikAkt(s.seq);
+        }
+        while (outboxRef.current.length) {
+          const kirim = outboxRef.current.slice(0, 500);
+          await kirimAkt(kirim);
+          setOutbox(buangTerkirim(outboxRef.current, kirim));
+        }
+        simpanSinkAkt({ ...s, terakhir: new Date().toISOString() });
+      } while (aktLagi.current);
+    } catch {
+      /* offline / server bermasalah → tetap di outbox, dicoba lagi nanti */
+    } finally {
+      aktJalan.current = false;
+    }
+  }, [setAktLokal, setOutbox, simpanSinkAkt]);
+  const sinkronAktRef = useRef(sinkronAktivitas);
+  sinkronAktRef.current = sinkronAktivitas;
+
+  const updateAkt = useCallback(
+    (f: (a: Aktivitas) => Aktivitas) => {
+      const prev = aktRef.current;
+      const next = f(prev);
+      if (next === prev) return;
+      setAktLokal(next);
+      setOutbox(tambahOutbox(outboxRef.current, bedaAkt(prev, next)));
+      void sinkronAktRef.current();
+    },
+    [setAktLokal, setOutbox],
+  );
 
   const updateKeranjang = useCallback((f: (k: KeranjangMT) => KeranjangMT) => {
     setKeranjang((prev) => {
       const next = f(prev);
-      lsSet(KEY_KERANJANG, next);
+      lsSet(K.KERANJANG, next);
       return next;
     });
   }, []);
@@ -480,10 +653,23 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [updateKeranjang],
   );
 
-  const resetAktivitas = useCallback(() => {
-    updateAkt(() => EMPTY_AKT);
+  const resetAktivitas = useCallback<Ctx['resetAktivitas']>(async () => {
+    let mode: 'server' | 'lokal' = 'lokal';
+    if (koneksiRef.current === 'server') {
+      const r = await resetAktServer();
+      simpanSinkAkt({ seq: 0, reset: r.reset, migrasi: true, terakhir: new Date().toISOString() });
+      mode = 'server';
+    }
+    setOutbox([]);
+    setAktLokal(EMPTY_AKT);
     updateKeranjang(() => ({}));
-  }, [updateAkt, updateKeranjang]);
+    return mode;
+  }, [setAktLokal, setOutbox, simpanSinkAkt, updateKeranjang]);
+  const simpanRetur = useCallback(
+    (r: Retur) => updateAkt((a) => ({ ...a, retur: [...(a.retur ?? []).filter((x) => x.id !== r.id), r] })),
+    [updateAkt],
+  );
+  const hapusRetur = useCallback((id: string) => updateAkt((a) => ({ ...a, retur: (a.retur ?? []).filter((x) => x.id !== id) })), [updateAkt]);
   const tambahPenagihan = useCallback((p: Penagihan) => updateAkt((a) => ({ ...a, penagihan: [...a.penagihan, p] })), [updateAkt]);
   const simpanStok = useCallback(
     (s: CekStok) =>
@@ -494,14 +680,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
       })),
     [updateAkt],
   );
-  const aktRef = useRef(aktivitas);
-  aktRef.current = aktivitas;
   const submitPO = useCallback<Ctx['submitPO']>(
     (po) => {
-      const [y, m] = po.tanggal.split('-');
-      const prefix = `PO/${y}/${m}/`;
-      const urut = aktRef.current.po.filter((x) => x.no_po.startsWith(prefix)).length + 1;
-      const created: PurchaseOrder = { ...po, no_po: `${prefix}${String(urut).padStart(4, '0')}` };
+      const created: PurchaseOrder = { ...po, no_po: nomorPO(aktRef.current.po, po.kode_salesman, po.tanggal) };
       updateAkt((a) => ({ ...a, po: [...a.po, created] }));
       return created;
     },
@@ -516,8 +697,9 @@ export function DataProvider({ children }: { children: ReactNode }) {
     [updateAkt],
   );
 
+  const lingkupKey = lingkup ? lingkup.map(normKode).join('|') : null;
   const derived = useMemo(() => {
-    const data: DataSet = { ...raw, rovi: applyPenagihan(raw.rovi, aktivitas.penagihan) };
+    const data: DataSet = { ...raw, rovi: applyPenagihan(raw.rovi, aktivitas.penagihan, aktivitas.retur) };
     const chToko = new Map<string, Channel>();
     for (const m of data.master) chToko.set(normKode(m.kode_toko), m.channel === 'MT' ? 'MT' : 'GT');
     const channelToko = (k: string): Channel => chToko.get(normKode(k)) ?? 'GT';
@@ -532,11 +714,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       masterIdx: indexMaster(data.master),
       produk: gabungProduk(data.produk, data.rules, data.price, 'GT'),
       produkMT: gabungProduk(data.produk, data.rules, data.price, 'MT'),
-      salesmen: [...seen].map(([kode, v]) => ({ kode, ...v })).sort((a, b) => a.kode.localeCompare(b.kode)),
+      // Lingkup akun: hanya SR yang boleh dilihat (akun sales = dirinya sendiri).
+      salesmen: [...seen]
+        .filter(([kode]) => !lingkupKey || lingkupKey.split('|').includes(kode))
+        .map(([kode, v]) => ({ kode, ...v }))
+        .sort((a, b) => a.kode.localeCompare(b.kode)),
       channelToko,
       mslIdx: indexMsl(data.msl),
     };
-  }, [raw, aktivitas.penagihan]);
+  }, [raw, aktivitas.penagihan, aktivitas.retur, lingkupKey]);
 
   const trxIdx = useMemo(() => indexTransaksi(raw.histori, aktivitas.po), [raw.histori, aktivitas.po]);
 
@@ -563,7 +749,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     replace,
     resetDummy,
     resetAktivitas,
+    aktTertunda,
+    aktTerakhir,
+    sinkronAktivitas,
     tambahPenagihan,
+    simpanRetur,
+    hapusRetur,
     simpanStok,
     submitPO,
     tandai,

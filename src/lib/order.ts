@@ -11,6 +11,8 @@ export interface ProdukLengkap extends Produk {
   moq: number;
   /** Isi per karton (CAR) dalam satuan dasar; 1 = tidak ada konversi karton. */
   isi_karton: number;
+  /** Ada baris di Data MOQ GT untuk SKU ini (false = MOQ belum diatur admin, dianggap 1). */
+  punyaMoq?: boolean;
 }
 
 export type ChannelHarga = 'GT' | 'MT';
@@ -46,6 +48,7 @@ export function gabungProduk(
       satuan: rule?.satuan ?? 'Pcs',
       moq: Math.max(1, rule?.moq ?? 1),
       isi_karton: Math.max(1, rule?.isi_karton ?? 1),
+      punyaMoq: !!rule,
     };
   });
 }
@@ -65,8 +68,8 @@ export function validasiQty(qty: number, _p?: unknown, _opsi: OpsiQty = {}): str
  * GT: MOQ hanya informasi/flag — qty diinput manual per satuan dan tetap boleh disubmit.
  * Mengembalikan catatan bila qty > 0 di bawah MOQ; null bila tidak perlu catatan (atau MT).
  */
-export function catatanMoq(qty: number, p: Pick<ProdukLengkap, 'moq' | 'satuan'>, opsi: OpsiQty = {}): string | null {
-  if (opsi.channel === 'MT' || qty <= 0 || qty >= p.moq) return null;
+export function catatanMoq(qty: number, p: Pick<ProdukLengkap, 'moq' | 'satuan' | 'punyaMoq'>, opsi: OpsiQty = {}): string | null {
+  if (opsi.channel === 'MT' || p.punyaMoq === false || qty <= 0 || qty >= p.moq) return null;
   return `Di bawah min. order ${p.moq} ${p.satuan}/item (catatan)`;
 }
 
@@ -82,8 +85,15 @@ export function formatQtySingkat(qty: number, p: Pick<ProdukLengkap, 'satuan' | 
   return `${qty} ${p.satuan}`;
 }
 
-/** Label MOQ untuk GT: "Min. 12 Pcs/item". */
-export const labelMoq = (p: Pick<ProdukLengkap, 'moq' | 'satuan'>) => `Min. ${p.moq} ${p.satuan}/item`;
+/** Label MOQ untuk GT: "Min. 12 Pcs/item". null bila MOQ belum diatur admin (jangan tampilkan "Min. 1" palsu). */
+export const labelMoq = (p: Pick<ProdukLengkap, 'moq' | 'satuan' | 'punyaMoq'>): string | null =>
+  p.punyaMoq === false ? null : `Min. ${p.moq} ${p.satuan}/item`;
+
+/** SKU di Master SKU yang belum punya baris di Data MOQ GT. */
+export function skuTanpaMoq(produk: readonly { kode_sku: string; nama_sku: string; new_material?: string }[], rules: readonly { kode_sku: string }[]) {
+  const ada = new Set(rules.map((r) => normKode(r.kode_sku)));
+  return produk.filter((p) => !ada.has(normKode(p.kode_sku)));
+}
 
 export interface HistoriSku {
   kode_sku: string;

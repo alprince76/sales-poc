@@ -1,7 +1,9 @@
-import { Activity, ReceiptText, Route as RouteIcon } from 'lucide-react';
+import { Activity, CloudUpload, KeyRound, LogOut, ReceiptText, Route as RouteIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useAuth } from '../../auth';
 import { cn, DateNav } from '../../components/ui';
+import { useData } from '../../state';
 import { todayJakarta } from '../../lib/dates';
 import { useSalesSession } from './session';
 
@@ -43,10 +45,46 @@ export function SalesHeader({ title, right, badge }: { title: string; right?: Re
   );
 }
 
+/** Data yang dicatat di HP tapi belum sampai ke database (offline). Terkirim otomatis begitu online. */
+export function BelumTerkirim({ inline = false }: { inline?: boolean }) {
+  const { aktTertunda, sinkronAktivitas } = useData();
+  if (!aktTertunda) return null;
+  if (inline)
+    return (
+      <button
+        type="button"
+        role="status"
+        onClick={() => void sinkronAktivitas()}
+        className="mt-2 flex w-full items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-left text-xs text-amber-900 ring-1 ring-amber-200"
+      >
+        <CloudUpload size={14} className="shrink-0" />
+        <span className="flex-1">
+          <b>{aktTertunda} data belum terkirim</b> · aman di HP, dikirim otomatis saat ada sinyal
+        </span>
+      </button>
+    );
+  return (
+    <div role="status" className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 px-3 pb-2">
+      <button
+        type="button"
+        onClick={() => void sinkronAktivitas()}
+        className="mx-auto flex w-full max-w-md items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-left text-xs text-amber-900 shadow-card ring-1 ring-amber-200"
+      >
+        <CloudUpload size={16} className="shrink-0" />
+        <span className="flex-1">
+          <b>{aktTertunda} data belum terkirim</b> ke kantor. Aman tersimpan di HP ini, dikirim otomatis saat ada sinyal.
+        </span>
+        <span className="font-semibold text-amber-800">Kirim</span>
+      </button>
+    </div>
+  );
+}
+
 export function SalesLayout({ nav = NAV }: { nav?: NavItem[] }) {
   return (
     <div className="min-h-dvh bg-slate-50 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
       <Outlet />
+      <BelumTerkirim />
       <nav aria-label="Menu utama" className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-safe">
         <ul className="mx-auto grid max-w-md" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
           {nav.map(({ to, label, icon: Icon, end }) => (
@@ -77,4 +115,35 @@ export function SalesLayout({ nav = NAV }: { nav?: NavItem[] }) {
 
 export function SalesBody({ children }: { children: ReactNode }) {
   return <main className="mx-auto max-w-md space-y-3 px-4 py-4">{children}</main>;
+}
+
+/** Nama akun login + Ganti PIN + Keluar (data yang belum terkirim diperingatkan dulu). */
+export function KotakAkunSales() {
+  const { sesi, keluar } = useAuth();
+  const { aktTertunda } = useData();
+  if (!sesi) return null;
+  const pin = !!sesi.pengguna.kode_salesman;
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-slate-800">
+        <b>{sesi.pengguna.nama}</b>
+        <span className="text-slate-500"> · {sesi.pengguna.kode_salesman ? `SR ${sesi.pengguna.kode_salesman}` : sesi.pengguna.email} · {sesi.peran.nama}</span>
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <Link to="/akun/sandi" className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 hover:bg-slate-50">
+          <KeyRound size={16} /> Ganti {pin ? 'PIN' : 'password'}
+        </Link>
+        <button
+          type="button"
+          onClick={() => {
+            if (aktTertunda && !window.confirm(`${aktTertunda} data belum terkirim ke kantor. Data tetap tersimpan di HP ini dan terkirim saat Anda login lagi. Keluar sekarang?`)) return;
+            void keluar();
+          }}
+          className="flex h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-red-700 hover:bg-red-50"
+        >
+          <LogOut size={16} /> Keluar
+        </button>
+      </div>
+    </div>
+  );
 }

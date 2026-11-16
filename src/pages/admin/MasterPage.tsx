@@ -7,6 +7,9 @@ import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { cekDuplikat, indeksJenis, JENIS_DATA, jenisById, type JenisData } from '../../lib/jenisData';
 import { SKEMA, validasiBaris, type TipeData } from '../../lib/parse';
+import { useAuth, useIzin } from '../../auth';
+import { boleh } from '../../lib/akses';
+import { AksesDitolak } from '../LoginPage';
 import { teksGagal } from '../../lib/pesan';
 import { formatTimestamp, useData } from '../../state';
 import { AdminPage } from './AdminLayout';
@@ -52,13 +55,19 @@ function labelBaris(kolom: Kolom[], r: Baris): string {
 
 export function MasterPage() {
   const { jenis } = useParams();
+  const { sesi } = useAuth();
   const j = jenisById(jenis);
-  if (!j) return <Navigate to={`/admin/master/${JENIS_DATA[0].id}`} replace />;
+  if (!j) {
+    const pertama = JENIS_DATA.find((x) => boleh(sesi?.izin, `master.${x.id}`, 'lihat'));
+    return pertama ? <Navigate to={`/admin/master/${pertama.id}`} replace /> : <AksesDitolak menu="Master Data" />;
+  }
+  if (!boleh(sesi?.izin, `master.${j.id}`, 'lihat')) return <AksesDitolak menu={`Master ${j.menu}`} />;
   return <MasterJenis key={j.id} j={j} />;
 }
 
 function MasterJenis({ j }: { j: JenisData }) {
   const { raw, sumber, versi, updatedAt, ubahBaris, menyimpan } = useData();
+  const izin = useIzin(`master.${j.id}`);
   const toast = useToast();
   const nav = useNavigate();
   const semuaKolom = SKEMA[j.tipe].kolom;
@@ -174,9 +183,11 @@ function MasterJenis({ j }: { j: JenisData }) {
       title={j.nama}
       description={j.desc}
       actions={
-        <Button onClick={() => bukaForm(null)}>
-          <Plus size={16} /> Tambah data
-        </Button>
+        izin.tambah ? (
+          <Button onClick={() => bukaForm(null)}>
+            <Plus size={16} /> Tambah data
+          </Button>
+        ) : undefined
       }
     >
       <Card className="p-0">
@@ -230,12 +241,16 @@ function MasterJenis({ j }: { j: JenisData }) {
                     ))}
                     <td className={cn('sticky right-0 px-1 py-1', i === sorot ? 'bg-amber-50' : 'bg-white group-hover:bg-slate-50')}>
                       <div className="flex justify-end">
-                        <IconButton label={`Edit baris ${i + 1}`} onClick={() => bukaForm(i)} className="h-9 w-9 text-slate-500 hover:text-brand-700">
-                          <Pencil size={16} />
-                        </IconButton>
-                        <IconButton label={`Hapus baris ${i + 1}`} onClick={() => hapus(i)} className="h-9 w-9 text-slate-500 hover:bg-red-50 hover:text-red-600">
-                          <Trash2 size={16} />
-                        </IconButton>
+                        {izin.ubah && (
+                          <IconButton label={`Edit baris ${i + 1}`} onClick={() => bukaForm(i)} className="h-9 w-9 text-slate-500 hover:text-brand-700">
+                            <Pencil size={16} />
+                          </IconButton>
+                        )}
+                        {izin.hapus && (
+                          <IconButton label={`Hapus baris ${i + 1}`} onClick={() => hapus(i)} className="h-9 w-9 text-slate-500 hover:bg-red-50 hover:text-red-600">
+                            <Trash2 size={16} />
+                          </IconButton>
+                        )}
                       </div>
                     </td>
                   </tr>

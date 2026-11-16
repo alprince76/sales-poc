@@ -1,5 +1,7 @@
 /** v9: Master Data (edit/hapus per baris), cek versi 409, pemilihan seed. */
 import { describe, expect, it } from 'vitest';
+import { sesiUji } from '../../netlify/lib/auth';
+const SA = sesiUji();
 import { handle } from '../../netlify/lib/handler';
 import { pilihTipeSeed } from '../../netlify/lib/seed';
 import { memoryStore } from '../../netlify/lib/store';
@@ -60,7 +62,7 @@ describe('jenis data & operasi baris', () => {
 describe('cek versi (seed hanya isi yang kosong)', () => {
   it('seed (versi 0) hanya bila kosong → 409 bila sudah ada; tanpa versi = timpa', async () => {
     const store = memoryStore();
-    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store);
+    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store, SA);
     expect((await simpanData('rules', [1], api, 0)).version).toBe(1);
     await expect(simpanData('rules', [2], api, 0)).rejects.toMatchObject({ status: 409 });
     expect((await simpanData('rules', [2], api, 1)).version).toBe(2);
@@ -72,7 +74,7 @@ describe('cek versi (seed hanya isi yang kosong)', () => {
 describe('CRUD per baris lewat client', () => {
   it('tambah/ubah/hapus satu baris tanpa mengirim seluruh tabel', async () => {
     const store = memoryStore();
-    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store);
+    const api: typeof fetch = async (input, init) => handle(new Request(`http://x${String(input)}`, init), store, SA);
     await simpanData('histori', Array.from({ length: 20_000 }, (_, i) => ({ kode_toko: `T${i}`, kode_sku: '1', tanggal_po: '2026-10-01', qty: 1 })), api);
     const lama = { kode_toko: 'T5', kode_sku: '1', tanggal_po: '2026-10-01', qty: 1 };
     expect((await ubahBaris('histori', { op: 'ubah', lama, baru: { ...lama, qty: 7 } }, api)).version).toBe(2);

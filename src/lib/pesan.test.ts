@@ -1,5 +1,7 @@
 /** v12: pesan gagal ramah (tanpa istilah teknis) + percobaan ulang otomatis. */
 import { describe, expect, it } from 'vitest';
+import { sesiUji } from '../../netlify/lib/auth';
+const SA = sesiUji();
 import { handle } from '../../netlify/lib/handler';
 import { memoryStore } from '../../netlify/lib/store';
 import { cekJenisFile, pesanBacaFile, pesanGagal } from './pesan';
@@ -54,12 +56,12 @@ describe('simpan: percobaan ulang otomatis untuk gangguan sementara', () => {
       n++;
       if (n === 1) throw new TypeError('Failed to fetch');
       if (n === 2) return new Response('<html>Bad gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } });
-      return handle(new Request(`http://x${String(input)}`, init), store);
+      return handle(new Request(`http://x${String(input)}`, init), store, SA);
     };
     const rows = [{ kode_sku: '1', satuan: 'Pcs', moq: 2 }];
     expect((await simpanData('rules', rows, api)).jumlah).toBe(1);
     expect(n).toBe(3);
-    expect(await ambilData('rules', (i, o) => handle(new Request(`http://x${String(i)}`, o), store))).toEqual(rows);
+    expect(await ambilData('rules', (i, o) => handle(new Request(`http://x${String(i)}`, o), store, SA))).toEqual(rows);
   }, 10000);
 
   it('413 (file terlalu besar) tidak diulang & status terbawa walau respons HTML', async () => {

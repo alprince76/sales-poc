@@ -4,10 +4,11 @@
  */
 import { handle } from '../lib/handler';
 import { pilihStore } from '../lib/store';
+import { pilihAuthStore, sesiDari } from '../lib/auth';
 
 export default async (req: Request): Promise<Response> => {
   try {
-    return await handle(req, pilihStore(process.env));
+    return await handle(req, pilihStore(process.env), await sesiDari(req, await pilihAuthStore(process.env)));
   } catch (e) {
     console.error(e);
     return new Response(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }), {

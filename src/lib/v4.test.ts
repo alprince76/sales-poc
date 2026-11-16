@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { namaDivisi, tanggalDMY } from './divisi';
 import { cekKredit, gabungProduk, historiToko, PERINGATAN_BLOKIR, suggestedQty, teksBiasaOrder, validasiPO } from './order';
-import { cariSku } from './sku-search';
+import { cariSku, cariSkuLengkap, sorotNama } from './sku-search';
 
 describe('Divisi faktur', () => {
   it('kode → nama; kode tak dikenal tetap tampil', () => {
@@ -78,5 +78,43 @@ describe('Teks histori yang mudah dipahami', () => {
     expect(teksBiasaOrder(s, 'Pcs')).toBe('Biasa order ±3 Pcs/bulan');
     expect(teksBiasaOrder({ rataBulanan: 0.3 }, 'Pcs')).toBe('Biasa order ±1 Pcs/bulan');
     expect(teksBiasaOrder({ rataBulanan: 0 }, 'Pcs')).toBeNull();
+  });
+});
+
+describe('v15: pencarian SKU lebih pintar', () => {
+  const nama = [
+    'Yupi Bolicious Strawberry 12x6x40 gr',
+    'Yupi Bolicious Strawberry M.Bag 6x6x40gr',
+    'Yupi Bolicious Strawberry Box 12x24x5gr',
+    'Strawberry Kiss Hanging Bag 24×120gr',
+    'Strawberry Kiss Mini Bag 12×6×50 gr',
+    'Bulk Can 9,5 liter - Strawberry',
+    'KELLOGGS FRUIT STRAWBERRY CF 1×18×180 g',
+    'KOEPOE KOEPOE PASTA STRAWBERRY 25 ml',
+    'KOEPOE KOEPOE PASTA STRAWBERRY 60 ml',
+    'Yupi Gummy Straw 100 gr',
+    'Yupi Bolicious Lychee M.Bag 6x6x40gr',
+  ];
+  const p = nama.map((n, i) => ({ kode_sku: String(123400 + i), nama_sku: n, divisi: i < 3 || i > 8 ? 'CP YUPI' : 'CP LAIN', harga: 1 }));
+  const k = (q: string) => cariSkuLengkap(p, q).items.map((x) => x.nama_sku);
+  it('tidak dibatasi 8: "straw" menampilkan semua yang cocok + total', () => {
+    const h = cariSkuLengkap(p, 'straw');
+    expect(h.total).toBe(10);
+    expect(h.items.map((x) => x.nama_sku)).toContain('Yupi Bolicious Strawberry 12x6x40 gr');
+  });
+  it('banyak kata, urutan bebas, cukup awalan', () => {
+    expect(k('bolic straw')).toEqual(['Yupi Bolicious Strawberry 12x6x40 gr', 'Yupi Bolicious Strawberry Box 12x24x5gr', 'Yupi Bolicious Strawberry M.Bag 6x6x40gr']);
+    expect(k('straw yupi 12x6')).toEqual(['Yupi Bolicious Strawberry 12x6x40 gr']);
+    expect(k('straw 40')).toEqual(['Yupi Bolicious Strawberry 12x6x40 gr', 'Yupi Bolicious Strawberry M.Bag 6x6x40gr']);
+    expect(k('kiss 12×6')).toEqual(['Strawberry Kiss Mini Bag 12×6×50 gr']);
+    expect(k('cp yupi lychee')).toEqual(['Yupi Bolicious Lychee M.Bag 6x6x40gr']);
+  });
+  it('salah ketik ringan pada huruf; kode tetap harus tepat', () => {
+    expect(k('bolicous strawbery')).toContain('Yupi Bolicious Strawberry 12x6x40 gr');
+    expect(cariSkuLengkap(p, '123400').items.map((x) => x.kode_sku)).toEqual(['123400']);
+    expect(k('zzzz')).toEqual([]);
+  });
+  it('sorotNama menandai bagian yang cocok', () => {
+    expect(sorotNama('Yupi Bolicious Strawberry', 'bolic straw').filter((b) => b.cocok).map((b) => b.teks)).toEqual(['Bolic', 'Straw']);
   });
 });

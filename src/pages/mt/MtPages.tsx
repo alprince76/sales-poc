@@ -1,7 +1,8 @@
 import { Activity, AlertTriangle, CalendarX2, CheckCircle2, ChevronRight, PackageCheck, Route as RouteIcon, Search, ShoppingCart, Store, UserRound } from 'lucide-react';
+import { KotakAkunSales } from '../sales/SalesLayout';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge, Card, cn, EmptyState, Input, ProgressBar, SectionTitle, Segmented, Select, SummaryCard } from '../../components/ui';
+import { Badge, Card, cn, EmptyState, Field, Input, ProgressBar, SectionTitle, Segmented, Select, SummaryCard } from '../../components/ui';
 import { normKode } from '../../lib/billing';
 import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
@@ -54,7 +55,7 @@ function KartuTokoMT({ r, onClick }: { r: BarisRuteMT; onClick: () => void }) {
                 <AlertTriangle size={12} strokeWidth={2.5} /> Ada {r.warning} SKU Belum Transaksi
               </span>
             ) : (
-              <Badge tone="green">MSL aman</Badge>
+              <Badge tone="green">SKU Listed aman</Badge>
             )}
             {r.keranjang > 0 && <Badge tone="brand">{r.keranjang} SKU di keranjang</Badge>}
             {r.poHariIni > 0 && <Badge tone="green">PO terkirim</Badge>}
@@ -62,7 +63,7 @@ function KartuTokoMT({ r, onClick }: { r: BarisRuteMT; onClick: () => void }) {
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className="text-xs font-semibold tabular text-slate-700">{r.persen}%</span>
-          <span className="text-[10px] text-slate-400">MSL aktif</span>
+          <span className="text-[10px] text-slate-400">SKU Listed aktif</span>
           <ChevronRight size={18} className="text-slate-300" aria-hidden />
         </div>
       </button>
@@ -85,12 +86,18 @@ export function MtRutePage() {
 
   return (
     <>
-      <SalesHeader title="Kunjungan Hari Ini" badge={<MtBadge />} />
+      <SalesHeader title="Plan Visit Hari Ini" badge={<MtBadge />} />
       <SalesBody>
-        <div className="grid grid-cols-3 gap-2">
-          <SummaryCard label="Kunjungan" value={rows.length} />
+        <div className="grid grid-cols-2 gap-2">
+          <SummaryCard label="Plan Visit" value={rows.length} hint="toko hari ini" />
           <SummaryCard label="Toko perlu follow-up" value={tokoWarning} accent={tokoWarning ? 'red' : undefined} />
-          <SummaryCard label="SKU untrans." value={totWarning} accent={totWarning ? 'red' : 'green'} />
+          <SummaryCard label="SKU Belum Transaksi" value={totWarning} accent={totWarning ? 'red' : 'green'} hint={`dari ${listed} SKU Listed`} />
+          <SummaryCard
+            label="Progress"
+            value={`${listed ? Math.round(((listed - totWarning) / listed) * 100) : 100}%`}
+            accent={!listed || totWarning === 0 ? 'green' : 'brand'}
+            hint={`${listed - totWarning}/${listed} sudah transaksi`}
+          />
         </div>
         {rows.length === 0 ? (
           <EmptyState icon={<CalendarX2 size={20} />} title="Tidak ada jadwal kunjungan hari ini">
@@ -100,7 +107,7 @@ export function MtRutePage() {
           <>
             <Card className="p-3">
               <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-medium text-slate-700">MSL aktif di rute</span>
+                <span className="font-medium text-slate-700">SKU Listed sudah transaksi</span>
                 <span className="font-semibold tabular text-slate-900">
                   {listed - totWarning}/{listed} SKU
                 </span>
@@ -128,7 +135,7 @@ export function MtRutePage() {
               />
             </div>
             {tampil.length === 0 ? (
-              <EmptyState icon={<CheckCircle2 size={20} className="text-emerald-600" />} title="Semua toko MSL aman" />
+              <EmptyState icon={<CheckCircle2 size={20} className="text-emerald-600" />} title="Semua SKU Listed toko sudah transaksi" />
             ) : (
               <ul className="space-y-2">
                 {tampil.map((r) => (
@@ -183,7 +190,7 @@ export function MtTokoListPage() {
                         {m.kode_toko}{m.cust_group ? ` · ${m.cust_group}` : ''}
                       </div>
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {c.warning > 0 ? <Badge tone="red">{c.warning} SKU belum transaksi</Badge> : <Badge tone="green">MSL aman</Badge>}
+                        {c.warning > 0 ? <Badge tone="red">{c.warning} SKU belum transaksi</Badge> : <Badge tone="green">SKU Listed aman</Badge>}
                         {berikut && <Badge tone={berikut === D ? 'brand' : 'gray'} dot={berikut === D}>{berikut === D ? 'Jadwal hari ini' : `Jadwal ${formatTanggal(berikut)}`}</Badge>}
                       </div>
                     </div>
@@ -278,7 +285,7 @@ export function MtAktivitasPage() {
       <SalesBody>
         <div className="grid grid-cols-2 gap-2">
           <SummaryCard label="Toko order" value={`${rows.filter((r) => tokoPO.has(r.kode_toko)).length}/${rows.length}`} accent="green" />
-          <SummaryCard label="MSL aktif rute" value={`${listed ? Math.round(((listed - warning) / listed) * 100) : 100}%`} accent="green" />
+          <SummaryCard label="SKU Listed aktif" value={`${listed ? Math.round(((listed - warning) / listed) * 100) : 100}%`} accent="green" />
           <SummaryCard label="PO terkirim" value={po.length} accent="brand" />
           <SummaryCard label="Nilai PO" value={formatRupiah(po.reduce((s, p) => s + p.total, 0))} accent="brand" />
         </div>
@@ -312,15 +319,20 @@ export function MtAktivitasPage() {
         </div>
         <Card className="space-y-3 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <UserRound size={16} /> Akun (demo)
+            <UserRound size={16} /> Akun
           </div>
-          <Select label="Ganti salesman" value={kode} onChange={setKode} className="w-full">
-            {salesmen.map((s) => (
-              <option key={s.kode} value={s.kode}>
-                {s.nama} ({s.kode})
-              </option>
-            ))}
-          </Select>
+          <KotakAkunSales />
+          {salesmen.length > 1 && (
+            <Field label="Lihat sebagai salesman (pratinjau)">
+              <Select label="Ganti salesman" value={kode} onChange={setKode} className="w-full">
+                {salesmen.map((s) => (
+                  <option key={s.kode} value={s.kode}>
+                    {s.nama} ({s.kode})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <p className="text-xs text-slate-500">Data terakhir diperbarui: {formatTimestamp(latestUpdate(updatedAt))}</p>
         </Card>
       </SalesBody>

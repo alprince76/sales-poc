@@ -1,8 +1,8 @@
 import { Check, Plus, Search, X } from 'lucide-react';
-import { useId, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState } from 'react';
 import { formatRupiah } from '../lib/format';
 import type { ProdukLengkap } from '../lib/order';
-import { cariSku } from '../lib/sku-search';
+import { cariSkuLengkap, sorotNama } from '../lib/sku-search';
 import { cn } from './ui';
 
 /**
@@ -28,7 +28,7 @@ export function SkuPicker({
   const [aktif, setAktif] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listId = useId();
-  const hasil = cariSku(produk, q, 8);
+  const { items: hasil, total } = useMemo(() => cariSkuLengkap(produk, q, 50), [produk, q]);
 
   const pilih = (p: ProdukLengkap) => {
     onPilih(p);
@@ -81,9 +81,15 @@ export function SkuPicker({
         )}
       </div>
       {open && q.trim() && (
-        <ul id={listId} role="listbox" className="absolute inset-x-0 top-[calc(100%+4px)] z-40 max-h-80 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+        <ul id={listId} role="listbox" className="absolute inset-x-0 top-[calc(100%+4px)] z-40 max-h-[min(24rem,60vh)] overflow-auto overscroll-contain rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+          {hasil.length > 0 && (
+            <li role="presentation" className="sticky top-0 z-10 -mt-1 border-b border-slate-100 bg-white/95 px-3 py-1.5 text-[11px] font-medium text-slate-500 backdrop-blur">
+              {total.toLocaleString('id-ID')} SKU cocok
+              {total > hasil.length && ` · menampilkan ${hasil.length}, ketik lebih spesifik untuk mempersempit`}
+            </li>
+          )}
           {hasil.length === 0 ? (
-            <li className="px-4 py-3 text-sm text-slate-500">SKU tidak ditemukan</li>
+            <li className="px-4 py-3 text-sm text-slate-500">SKU tidak ditemukan. Coba kata lain, mis. sebagian nama atau kode SKU.</li>
           ) : (
             hasil.map((p, i) => {
               const sudah = terpilih?.has(p.kode_sku);
@@ -99,7 +105,19 @@ export function SkuPicker({
                   className={cn('flex cursor-pointer items-center gap-3 px-3 py-2.5', i === aktif && 'bg-brand-50')}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-slate-900">{p.nama_sku}</div>
+                    <div className="line-clamp-2 text-sm text-slate-900">
+                      {sorotNama(p.nama_sku, q).map((b, j) =>
+                        b.cocok ? (
+                          <b key={j} className="font-semibold text-brand-800">
+                            {b.teks}
+                          </b>
+                        ) : (
+                          <span key={j} className="font-medium">
+                            {b.teks}
+                          </span>
+                        ),
+                      )}
+                    </div>
                     <div className="truncate text-xs text-slate-500">
                       {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                     </div>

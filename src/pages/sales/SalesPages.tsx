@@ -1,10 +1,11 @@
 import { CalendarClock, CheckCircle2, ChevronRight, HandCoins, PackageCheck, ReceiptText, Search, ShieldAlert, Store, UserRound } from 'lucide-react';
+import { KotakAkunSales } from './SalesLayout';
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useKunjungan, KunjunganPanel } from '../../components/KunjunganPanel';
 import { BayarBadge } from '../../components/DetailTokoView';
 import { FakturCard, PenagihanSheet, usePenagihanTerakhir } from '../../components/Penagihan';
-import { Badge, Card, EmptyState, Input, SectionTitle, Segmented, Select, StatusTokoBadge, SummaryCard, cn } from '../../components/ui';
+import { Badge, Card, EmptyState, Field, Input, SectionTitle, Segmented, Select, StatusTokoBadge, SummaryCard, cn } from '../../components/ui';
 import { indexFaktur, normKode, ringkasTagihan, type FakturDinilai } from '../../lib/billing';
 import { daftarInkasso, type BarisInkasso } from '../../lib/inkasso';
 import { getPenagihanTerakhir, LABEL_STATUS_BAYAR, ringkasPenagihan } from '../../lib/collection';
@@ -25,7 +26,7 @@ export function RutePage() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
   const tab = (TAB_RUTE.includes(sp.get('tab') as TabRute) ? sp.get('tab') : 'onroute') as TabRute;
-  const buka = (k: string) => nav(`/sales/kunjungan/${encodeURIComponent(k)}`);
+  const buka = (k: string, step?: string) => nav(`/sales/kunjungan/${encodeURIComponent(k)}${step ? `?step=${step}` : ''}`);
   return (
     <>
       <SalesHeader title={tab === 'onroute' ? 'On Route' : tab === 'nonroute' ? 'Non Route' : 'Daftar Inkasso'} />
@@ -349,15 +350,20 @@ export function AktivitasPage() {
 
         <Card className="space-y-3 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <UserRound size={16} /> Akun (demo)
+            <UserRound size={16} /> Akun
           </div>
-          <Select label="Ganti salesman" value={kode} onChange={setKode} className="w-full">
-            {salesmen.map((s) => (
-              <option key={s.kode} value={s.kode}>
-                {s.nama} ({s.kode})
-              </option>
-            ))}
-          </Select>
+          <KotakAkunSales />
+          {salesmen.length > 1 && (
+            <Field label="Lihat sebagai salesman (pratinjau)">
+              <Select label="Ganti salesman" value={kode} onChange={setKode} className="w-full">
+                {salesmen.map((s) => (
+                  <option key={s.kode} value={s.kode}>
+                    {s.nama} ({s.kode})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
           <p className="text-xs text-slate-500">Data terakhir diperbarui: {formatTimestamp(latestUpdate(updatedAt))}</p>
         </Card>
       </SalesBody>

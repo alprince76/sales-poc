@@ -1,4 +1,12 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { useAuth } from './auth';
+import { SyncToast } from './components/SyncToast';
+import { boleh, halamanAwal, menuById } from './lib/akses';
+import { AksesDitolak, GantiSandiPage, LoginPage } from './pages/LoginPage';
+import { PenggunaPage } from './pages/admin/PenggunaPage';
+import { PeranPage } from './pages/admin/PeranPage';
+import { DataProvider } from './state';
 import { Button } from './components/ui';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { PenagihanPage, POPage, RuteAdminPage, StokPage, TokoFakturPage } from './pages/admin/AdminPages';
@@ -10,18 +18,44 @@ import { AktivitasPage, RutePage, TagihanPage } from './pages/sales/SalesPages';
 import { SalesSessionProvider } from './pages/sales/session';
 import { VisitPage } from './pages/sales/VisitPage';
 import { useData } from './state';
-import { Home } from './pages/Home';
 import { MslPage } from './pages/admin/MslPage';
 import { MtAktivitasPage, MtLayout, MtOrderPage, MtRutePage, MtTokoListPage } from './pages/mt/MtPages';
 import { MtRedirect, MtTokoPage } from './pages/mt/MtStore';
 
-function Splash() {
+function Splash({ teks = 'Memuat data…' }: { teks?: string }) {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-3 text-sm text-slate-500">
       <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-brand-600" aria-hidden />
-      Memuat data…
+      {teks}
     </div>
   );
+}
+
+/** Akar aplikasi: cek sesi → login / ganti sandi wajib → data (per akun) → rute. */
+export function Root() {
+  const { status, sesi } = useAuth();
+  const loc = useLocation();
+  if (status === 'cek') return <Splash teks="Memeriksa sesi…" />;
+  if (loc.pathname === '/login') return sesi ? <Navigate to={halamanAwal(sesi.izin)} replace /> : <LoginPage />;
+  if (!sesi) return <Navigate to={`/login?ke=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
+  if (sesi.pengguna.wajib_ganti && status !== 'offline') return <GantiSandiPage wajib />;
+  return (
+    <DataProvider key={sesi.pengguna.id} penggunaId={sesi.pengguna.id} lingkup={sesi.lingkup}>
+      <App />
+      <SyncToast />
+    </DataProvider>
+  );
+}
+
+/** Pengaman rute: butuh izin Lihat pada menu. */
+function Wajib({ menu, children }: { menu: string; children: ReactNode }) {
+  const { sesi } = useAuth();
+  return boleh(sesi?.izin, menu, 'lihat') ? <>{children}</> : <AksesDitolak menu={menuById(menu)?.nama} />;
+}
+
+function KeAwal() {
+  const { sesi } = useAuth();
+  return <Navigate to={halamanAwal(sesi?.izin)} replace />;
 }
 
 export function App() {
@@ -46,11 +80,14 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<KeAwal />} />
+      <Route path="/akun/sandi" element={<GantiSandiPage />} />
+      <Route path="/akses-ditolak" element={<AksesDitolak />} />
       <Route path="/gt/*" element={<Navigate to="/sales" replace />} />
       <Route
         path="/mt/*"
         element={
+          <Wajib menu="app.mt">
           <SalesSessionProvider channel="MT" storageKey="svdi-v2-mt-session">
             <Routes>
               <Route path="toko/:kode" element={<MtTokoPage />} />
@@ -65,11 +102,13 @@ export function App() {
               <Route path="*" element={<Navigate to="/mt" replace />} />
             </Routes>
           </SalesSessionProvider>
+          </Wajib>
         }
       />
       <Route
         path="/sales/*"
         element={
+          <Wajib menu="app.gt">
           <SalesSessionProvider>
             <Routes>
               <Route path="kunjungan/:kode" element={<VisitPage />} />
@@ -82,20 +121,23 @@ export function App() {
               <Route path="*" element={<Navigate to="/sales" replace />} />
             </Routes>
           </SalesSessionProvider>
+          </Wajib>
         }
       />
       <Route path="/admin" element={<AdminLayout />}>
-        <Route index element={<DashboardGTPage />} />
-        <Route path="mt" element={<DashboardMTPage />} />
-        <Route path="rute" element={<RuteAdminPage />} />
-        <Route path="toko" element={<TokoFakturPage />} />
-        <Route path="penagihan" element={<PenagihanPage />} />
-        <Route path="po" element={<POPage />} />
-        <Route path="stok" element={<StokPage />} />
-        <Route path="msl" element={<MslPage />} />
-        <Route path="data" element={<DataPage />} />
+        <Route index element={<Wajib menu="dashboard.gt"><DashboardGTPage /></Wajib>} />
+        <Route path="mt" element={<Wajib menu="dashboard.mt"><DashboardMTPage /></Wajib>} />
+        <Route path="rute" element={<Wajib menu="ops.rute"><RuteAdminPage /></Wajib>} />
+        <Route path="toko" element={<Wajib menu="ops.toko"><TokoFakturPage /></Wajib>} />
+        <Route path="penagihan" element={<Wajib menu="ops.collection"><PenagihanPage /></Wajib>} />
+        <Route path="po" element={<Wajib menu="ops.po"><POPage /></Wajib>} />
+        <Route path="stok" element={<Wajib menu="ops.stok"><StokPage /></Wajib>} />
+        <Route path="msl" element={<Wajib menu="ops.msl"><MslPage /></Wajib>} />
+        <Route path="data" element={<Wajib menu="data.upload"><DataPage /></Wajib>} />
         <Route path="master" element={<MasterPage />} />
         <Route path="master/:jenis" element={<MasterPage />} />
+        <Route path="pengguna" element={<Wajib menu="pengguna.user"><PenggunaPage /></Wajib>} />
+        <Route path="peran" element={<Wajib menu="pengguna.peran"><PeranPage /></Wajib>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

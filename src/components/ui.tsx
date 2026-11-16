@@ -131,23 +131,40 @@ export function SummaryCard({
   accent,
   hint,
   icon,
+  onClick,
+  aktif,
 }: {
   label: string;
   value: ReactNode;
   accent?: 'red' | 'green' | 'brand';
   hint?: ReactNode;
   icon?: ReactNode;
+  /** Kartu bisa ditekan (mis. jadi filter). */
+  onClick?: () => void;
+  aktif?: boolean;
 }) {
   const color = accent === 'red' ? 'text-red-700' : accent === 'green' ? 'text-emerald-700' : accent === 'brand' ? 'text-brand-700' : 'text-slate-900';
-  return (
-    <div className="min-w-0 rounded-2xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-card">
+  const isi = (
+    <>
       <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase leading-tight tracking-tight text-slate-500">
         {icon}
         <span>{label}</span>
       </div>
       <div className={cn('mt-1 whitespace-nowrap text-lg font-semibold tabular', color)}>{value}</div>
       {hint && <div className="mt-0.5 truncate text-xs text-slate-500">{hint}</div>}
-    </div>
+    </>
+  );
+  const kelas = 'min-w-0 rounded-2xl border bg-white px-3 py-2.5 text-left shadow-card';
+  if (!onClick) return <div className={cn(kelas, 'border-slate-200/80')}>{isi}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={aktif}
+      className={cn(kelas, 'transition-colors hover:bg-slate-50 active:bg-slate-100', aktif ? 'border-red-300 ring-2 ring-red-200' : 'border-slate-200/80')}
+    >
+      {isi}
+    </button>
   );
 }
 

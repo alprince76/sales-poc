@@ -4,7 +4,7 @@
  */
 import { diffDays, isISODate, type ISODate } from './dates';
 import { normKode } from './billing';
-import type { Faktur, Penagihan, StatusBayar } from './types';
+import type { Faktur, Penagihan, StatusBayar, Retur } from './types';
 
 export const LABEL_STATUS_BAYAR: Record<StatusBayar, string> = {
   PAID: 'Paid',
@@ -90,13 +90,19 @@ export function buatPenagihan(
 const keyFaktur = (no: string) => no.trim().toUpperCase();
 
 /** ROVI efektif: sisa_tagihan dikurangi pembayaran (PAID/PARTIAL) yang tercatat. */
-export function applyPenagihan(rovi: readonly Faktur[], logs: readonly Penagihan[]): Faktur[] {
-  if (!logs.length) return rovi as Faktur[];
+export function applyPenagihan(rovi: readonly Faktur[], logs: readonly Penagihan[], retur: readonly Retur[] = []): Faktur[] {
+  if (!logs.length && !retur.length) return rovi as Faktur[];
   const bayar = new Map<string, number>();
   for (const l of logs) {
     if (l.status !== 'PAID' && l.status !== 'PARTIAL') continue;
     const k = keyFaktur(l.no_faktur);
     bayar.set(k, (bayar.get(k) ?? 0) + l.nominal);
+  }
+  // Retur memotong tagihan faktur yang dipilih.
+  for (const r of retur) {
+    if (!r.no_faktur) continue; // retur tanpa faktur: dicatat saja, tidak memotong tagihan
+    const k = keyFaktur(r.no_faktur);
+    bayar.set(k, (bayar.get(k) ?? 0) + r.nominal);
   }
   return rovi.map((f) => {
     const b = bayar.get(keyFaktur(f.no_faktur));

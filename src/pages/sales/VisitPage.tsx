@@ -16,8 +16,10 @@ import type { ItemPO, LangkahKunjungan, StokInternal, StokKompetitor } from '../
 import { cariKunjungan, isSelesai, LABEL_LANGKAH, LANGKAH } from '../../lib/visit';
 import { newId, useData } from '../../state';
 import { useSalesSession } from './session';
+import { BelumTerkirim } from './SalesLayout';
 
 type Step = LangkahKunjungan | 'selesai';
+const LABEL_STEP: Record<Step, string> = { stok: 'Stok', retur: 'Retur', collection: 'Collection', po: 'PO', selesai: 'Selesai' };
 const STEPS: Step[] = [...LANGKAH, 'selesai'];
 
 /** Bar aksi menempel di bawah layar. */
@@ -39,7 +41,7 @@ export function VisitPage() {
   const d = useDetailToko(kodeToko, D);
   const status = cariKunjungan(aktivitas.kunjungan, sales, kodeToko, D);
   const selesai = isSelesai(status);
-  const step = (STEPS.includes(sp.get('step') as Step) ? sp.get('step') : 'collection') as Step;
+  const step = (STEPS.includes(sp.get('step') as Step) ? sp.get('step') : 'stok') as Step;
   const go = (s: Step) => {
     setSp({ step: s }, { replace: true });
     window.scrollTo({ top: 0 });
@@ -74,12 +76,14 @@ export function VisitPage() {
             {selesai ? <Badge tone="green">Selesai</Badge> : !terjadwal ? <Badge tone="orange" dot={false}>Non Route</Badge> : null}
           </div>
           <Stepper step={step} status={status?.langkah ?? {}} selesai={selesai} onGo={go} />
+          <BelumTerkirim inline />
         </div>
       </header>
 
       <main className="mx-auto max-w-md space-y-3 px-4 py-4">
-        {step === 'collection' && <CollectionStep kodeToko={kodeToko} onNext={() => go('stok')} />}
-        {step === 'stok' && <StokStep kodeToko={kodeToko} onNext={() => go('po')} />}
+        {step === 'stok' && <StokStep kodeToko={kodeToko} onNext={() => go('retur')} />}
+        {step === 'retur' && <ReturStep kodeToko={kodeToko} onNext={() => go('collection')} />}
+        {step === 'collection' && <CollectionStep kodeToko={kodeToko} onNext={() => go('po')} />}
         {step === 'po' && <POStep kodeToko={kodeToko} onNext={() => go('selesai')} />}
         {step === 'selesai' && <SelesaiStep kodeToko={kodeToko} onGo={go} />}
       </main>
@@ -89,7 +93,7 @@ export function VisitPage() {
 
 function Stepper({ step, status, selesai, onGo }: { step: Step; status: Partial<Record<LangkahKunjungan, string>>; selesai: boolean; onGo: (s: Step) => void }) {
   return (
-    <ol className="mt-2 grid grid-cols-4 gap-1">
+    <ol className="mt-2 grid grid-cols-5 gap-0.5">
       {STEPS.map((s, i) => {
         const hasil = s === 'selesai' ? (selesai ? 'SELESAI' : undefined) : status[s];
         const active = s === step;
@@ -108,7 +112,7 @@ function Stepper({ step, status, selesai, onGo }: { step: Step; status: Partial<
                 </span>
                 <span className={cn('h-0.5 flex-1', i === STEPS.length - 1 ? 'bg-transparent' : hasil ? 'bg-brand-300' : 'bg-slate-200')} />
               </span>
-              <span className={cn('text-[11px] font-medium leading-none', active ? 'text-brand-700' : 'text-slate-500')}>{s === 'selesai' ? 'Selesai' : s === 'po' ? 'PO' : s === 'stok' ? 'Stok' : 'Collection'}</span>
+              <span className={cn('text-[11px] font-medium leading-none', active ? 'text-brand-700' : 'text-slate-500')}>{LABEL_STEP[s]}</span>
             </button>
           </li>
         );
@@ -117,7 +121,7 @@ function Stepper({ step, status, selesai, onGo }: { step: Step; status: Partial<
   );
 }
 
-// ───────────────────────── 1. Collection ─────────────────────────
+// ───────────────────────── 3. Collection ─────────────────────────
 
 function CollectionStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) {
   const { kode: sales, D } = useSalesSession();
@@ -154,14 +158,14 @@ function CollectionStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => 
       <PenagihanSheet faktur={aktif} kodeSalesman={sales} D={D} onClose={() => setAktif(null)} />
       <ActionBar>
         <Button block size="lg" onClick={lanjut}>
-          Lanjut ke Cek Stok
+          Lanjut ke PO
         </Button>
       </ActionBar>
     </>
   );
 }
 
-// ───────────────────────── 2. Cek Stok ─────────────────────────
+// ───────────────────────── 1. Cek Stok ─────────────────────────
 
 function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) {
   const { kode: sales, D } = useSalesSession();
@@ -177,6 +181,7 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
     existing?.internal.length ? existing.internal : kandidat.filter((p) => p.pernahDibeli).map((p) => ({ kode_sku: p.kode_sku, display: 0, backroom: 0 })),
   );
   // Kompetitor: dari cek stok hari ini, atau otomatis dari cek stok terakhir toko (nama produk saja, qty 0).
+  const [fokusKomp, setFokusKomp] = useState(0);
   const [komp, setKomp] = useState<StokKompetitor[]>(() => {
     if (existing?.kompetitor.length) return existing.kompetitor;
     const sebelum = aktivitas.stok
@@ -291,14 +296,26 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
             Catat produk kompetitor yang ada di toko sebagai pembanding pangsa pasar.
             {kompOtomatis && <span className="mt-1 block text-xs text-brand-700">Daftar produk diisi otomatis dari cek stok sebelumnya. Isi qty terbaru.</span>}
           </p>
+          {/* Tombol tetap di atas; produk baru masuk paling atas supaya tombol tidak terdorong ke bawah. */}
+          <Button
+            variant="secondary"
+            block
+            onClick={() => {
+              setKomp((x) => [{ nama_produk: '', qty: 0, satuan_input: 'PCS' }, ...x]);
+              setFokusKomp((n) => n + 1);
+            }}
+          >
+            <Plus size={16} /> Tambah produk kompetitor
+          </Button>
+          {komp.length > 1 && <p className="px-1 text-xs text-slate-500">{komp.length} produk kompetitor · terbaru di atas</p>}
           <ul className="space-y-2">
             {komp.map((k, i) => (
-              <li key={i}>
+              <li key={komp.length - i}>
                 <Card className="p-3">
                   <div className="flex items-end gap-2">
                     <label className="min-w-0 flex-1">
                       <span className="mb-1 block text-xs font-medium text-slate-500">Nama produk</span>
-                      <Input value={k.nama_produk} placeholder="mis. Haribo Goldbears 100gr" onChange={(e) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, nama_produk: e.target.value } : y)))} />
+                      <Input autoFocus={i === 0 && fokusKomp > 0 && !k.nama_produk} value={k.nama_produk} placeholder="mis. Haribo Goldbears 100gr" onChange={(e) => setKomp((x) => x.map((y, j) => (j === i ? { ...y, nama_produk: e.target.value } : y)))} />
                     </label>
                     <button type="button" aria-label="Hapus baris" onClick={() => setKomp((x) => x.filter((_, j) => j !== i))} className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
                       <Trash2 size={16} />
@@ -315,9 +332,6 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
               </li>
             ))}
           </ul>
-          <Button variant="secondary" block onClick={() => setKomp((x) => [...x, { nama_produk: '', qty: 0, satuan_input: 'PCS' }])}>
-            <Plus size={16} /> Tambah produk kompetitor
-          </Button>
         </>
       )}
 
@@ -333,7 +347,194 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
   );
 }
 
-// ───────────────────────── 3. Purchase Order ─────────────────────────
+// ───────────────────────── 2. Retur ─────────────────────────
+
+type BarisRetur = { p: ProdukLengkap; qty: number };
+
+/** Retur barang: pilih SKU + qty (harga = harga SKU), lalu pilih 1 faktur yang dipotong tagihannya. */
+function ReturStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) {
+  const { kode: sales, D } = useSalesSession();
+  const { produk, aktivitas, simpanRetur, hapusRetur, tandai } = useData();
+  const d = useDetailToko(kodeToko, D);
+  const toast = useToast();
+  const [baris, setBaris] = useState<BarisRetur[]>([]);
+  const [noFaktur, setNoFaktur] = useState<string>('');
+  const [err, setErr] = useState<string | null>(null);
+  const tersimpan = (aktivitas.retur ?? []).filter((r) => r.kode_toko === kodeToko && r.tanggal === D && r.kode_salesman === sales);
+  const faktur = d.faktur.filter((f) => f.sisa_tagihan > 0);
+  const total = baris.reduce((t, b) => t + b.qty * b.p.harga, 0);
+  const fPilih = faktur.find((f) => f.no_faktur === noFaktur);
+
+  const tambah = (p: ProdukLengkap) => {
+    setErr(null);
+    setBaris((x) => (x.some((b) => b.p.kode_sku === p.kode_sku) ? x : [{ p, qty: 1 }, ...x]));
+  };
+  const simpan = (): boolean => {
+    setErr(null);
+    const isi = baris.filter((b) => b.qty > 0);
+    if (!isi.length) return true;
+    if (fPilih && total > fPilih.sisa_tagihan) {
+      setErr(`Nilai retur ${formatRupiah(total)} melebihi sisa tagihan faktur ${fPilih.no_faktur} (${formatRupiah(fPilih.sisa_tagihan)}). Kurangi qty atau pilih faktur lain.`);
+      return false;
+    }
+    simpanRetur({
+      id: newId(),
+      kode_toko: kodeToko,
+      kode_salesman: sales,
+      tanggal: D,
+      no_faktur: fPilih?.no_faktur ?? '',
+      items: isi.map((b) => ({ kode_sku: b.p.kode_sku, nama_sku: b.p.nama_sku, qty: b.qty, harga: b.p.harga, subtotal: b.qty * b.p.harga })),
+      nominal: total,
+      createdAt: new Date().toISOString(),
+    });
+    toast(fPilih ? `Retur ${formatRupiah(total)} memotong faktur ${fPilih.no_faktur}` : `Retur ${formatRupiah(total)} dicatat (tanpa potong tagihan)`);
+    setBaris([]);
+    setNoFaktur('');
+    return true;
+  };
+  const lanjut = () => {
+    if (!simpan()) return;
+    const ada = tersimpan.length > 0 || baris.some((b) => b.qty > 0);
+    tandai(sales, kodeToko, D, 'retur', ada ? 'SELESAI' : 'DILEWATI');
+    onNext();
+  };
+
+  return (
+    <>
+      <p className="px-1 text-sm text-slate-600">Catat barang yang diretur toko. Nilainya (qty × harga SKU) memotong sisa tagihan faktur yang dipilih.</p>
+
+      {tersimpan.length > 0 && (
+        <Card className="p-4">
+          <SectionTitle right={<span className="font-semibold text-slate-900">{formatRupiah(tersimpan.reduce((t, r) => t + r.nominal, 0))}</span>}>Retur kunjungan ini</SectionTitle>
+          <ul className="divide-y divide-slate-100">
+            {tersimpan.map((r) => (
+              <li key={r.id} className="flex items-start gap-2 py-2">
+                <div className="min-w-0 flex-1 text-sm">
+                  <div className="font-mono text-[13px] text-slate-700">{r.no_faktur ? `Faktur ${r.no_faktur}` : 'Tanpa potong tagihan'}</div>
+                  <div className="text-xs text-slate-500">{r.items.map((i) => `${i.nama_sku} × ${i.qty}`).join(', ')}</div>
+                </div>
+                <span className="shrink-0 text-sm font-semibold tabular text-slate-900">{formatRupiah(r.nominal)}</span>
+                <button
+                  type="button"
+                  aria-label={`Hapus retur faktur ${r.no_faktur}`}
+                  onClick={() =>
+                    window.confirm(r.no_faktur ? `Hapus retur ${formatRupiah(r.nominal)} dari faktur ${r.no_faktur}? Sisa tagihan kembali seperti semula.` : `Hapus retur ${formatRupiah(r.nominal)}?`) && hapusRetur(r.id)
+                  }
+                  className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <SkuPicker produk={produk} onPilih={tambah} terpilih={new Set(baris.map((b) => b.p.kode_sku))} label="Cari SKU retur" placeholder="Cari SKU yang diretur" />
+
+      {baris.length > 0 && (
+        <ul className="space-y-2">
+          {baris.map((b) => (
+            <li key={b.p.kode_sku}>
+              <Card className="p-3">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-slate-900">{b.p.nama_sku}</div>
+                    <div className="text-xs text-slate-500">
+                      {b.p.kode_sku} · {formatRupiah(b.p.harga)}/{b.p.satuan}
+                    </div>
+                  </div>
+                  <button type="button" aria-label={`Hapus ${b.p.nama_sku}`} onClick={() => setBaris((x) => x.filter((y) => y.p.kode_sku !== b.p.kode_sku))} className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                <div className="mt-2 flex items-end justify-between gap-2">
+                  <QtyUnit label={`qty retur ${b.p.nama_sku}`} value={b.qty} isi={b.p.isi_karton} satuan={b.p.satuan} onChange={(v) => setBaris((x) => x.map((y) => (y.p.kode_sku === b.p.kode_sku ? { ...y, qty: v } : y)))} />
+                  <span className="pb-2 text-sm font-semibold tabular text-slate-900">{formatRupiah(b.qty * b.p.harga)}</span>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {baris.length > 0 && (
+        <Card className="p-4">
+          <SectionTitle right={<span className="text-base font-bold tabular text-slate-900">{formatRupiah(total)}</span>}>Potong tagihan faktur</SectionTitle>
+          <p className="-mt-1 mb-2 text-xs text-slate-500">Opsional. Pilih faktur bila nilai retur memotong tagihan; tap lagi untuk membatalkan pilihan.</p>
+          {faktur.length === 0 ? (
+            <p className="text-sm text-slate-500">Toko ini tidak punya faktur dengan sisa tagihan. Retur tetap dicatat tanpa memotong tagihan.</p>
+          ) : (
+            <div role="radiogroup" aria-label="Faktur yang dipotong (opsional)" className="space-y-1.5">
+              {faktur.map((f) => {
+                const cukup = total <= f.sisa_tagihan;
+                return (
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={noFaktur === f.no_faktur}
+                    key={f.no_faktur}
+                    onClick={() => {
+                      setNoFaktur((x) => (x === f.no_faktur ? '' : f.no_faktur));
+                      setErr(null);
+                    }}
+                    className={cn(
+                      'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm',
+                      noFaktur === f.no_faktur ? 'border-brand-500 bg-brand-50' : 'border-slate-200 hover:bg-slate-50',
+                    )}
+                  >
+                    <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2', noFaktur === f.no_faktur ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300')}>
+                      {noFaktur === f.no_faktur && <Check size={12} strokeWidth={3} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[13px] text-slate-800">{f.no_faktur}</div>
+                      <div className="text-xs text-slate-500">
+                        JT {formatTanggal(f.tanggal_jatuh_tempo)}
+                        {f.status === 'OVERDUE' ? ` · overdue ${f.hariTerlambat} hari` : f.status === 'JATUH_TEMPO_HARI_INI' ? ' · jatuh tempo hari ini' : ''}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-semibold tabular text-slate-900">{formatRupiah(f.sisa_tagihan)}</div>
+                      {!cukup && <div className="text-[11px] text-red-600">kurang dari nilai retur</div>}
+                      {cukup && noFaktur === f.no_faktur && <div className="text-[11px] text-emerald-700">sisa jadi {formatRupiah(f.sisa_tagihan - total)}</div>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {err && (
+            <p role="alert" className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+              {err}
+            </p>
+          )}
+          <Button className="mt-3" variant="secondary" block onClick={() => simpan()}>
+            Simpan retur & tambah lagi
+          </Button>
+        </Card>
+      )}
+
+      <ActionBar>
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => {
+            setBaris([]);
+            tandai(sales, kodeToko, D, 'retur', tersimpan.length ? 'SELESAI' : 'DILEWATI');
+            onNext();
+          }}
+        >
+          {tersimpan.length ? 'Lewati' : 'Tidak ada retur'}
+        </Button>
+        <Button block size="lg" onClick={lanjut}>
+          {baris.some((b) => b.qty > 0) ? 'Simpan & Lanjut' : 'Lanjut ke Collection'}
+        </Button>
+      </ActionBar>
+    </>
+  );
+}
+
+// ───────────────────────── 4. Purchase Order ─────────────────────────
 
 /** Info histori yang mudah dibaca: "Biasa order ±4 Pcs/bulan · Terakhir 6 Pcs, 20 Okt 2026". */
 export function InfoHistori({ h, p }: { h?: HistoriSku; p: ProdukLengkap }) {
@@ -466,9 +667,11 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
                       </button>
                     </div>
                     <div className="mt-1.5 space-y-1">
-                      <Badge tone="brand" dot={false}>
-                        {labelMoq(p)}
-                      </Badge>
+                      {labelMoq(p) && (
+                        <Badge tone="brand" dot={false}>
+                          {labelMoq(p)}
+                        </Badge>
+                      )}
                       <InfoHistori h={histMap.get(p.kode_sku)} p={p} />
                     </div>
                     <div className="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
@@ -514,7 +717,7 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium text-slate-900">{p.nama_sku}</div>
                     <InfoHistori h={h} p={p} />
-                    <p className="text-xs font-medium text-brand-700">{labelMoq(p)}</p>
+                    {labelMoq(p) && <p className="text-xs font-medium text-brand-700">{labelMoq(p)}</p>}
                   </div>
                   <button type="button" onClick={() => tambah(p)} className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg bg-brand-50 px-2.5 text-xs font-semibold text-brand-700 hover:bg-brand-100" aria-label={`Tambah ${p.nama_sku}`}>
                     <Plus size={14} /> Tambah
@@ -644,7 +847,7 @@ export function KreditCard({ limit, outstanding, totalPO }: { limit: number; out
   );
 }
 
-// ───────────────────────── 4. Selesai ─────────────────────────
+// ───────────────────────── 5. Selesai ─────────────────────────
 
 function SelesaiStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => void }) {
   const { kode: sales, D } = useSalesSession();
@@ -655,6 +858,7 @@ function SelesaiStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
   const pen = aktivitas.penagihan.filter((p) => p.kode_toko === kodeToko && p.tanggal === D && p.kode_salesman === sales);
   const stok = aktivitas.stok.find((s) => s.kode_toko === kodeToko && s.tanggal === D && s.kode_salesman === sales);
   const po = aktivitas.po.filter((p) => p.kode_toko === kodeToko && p.tanggal === D && p.kode_salesman === sales);
+  const retur = (aktivitas.retur ?? []).filter((r) => r.kode_toko === kodeToko && r.tanggal === D && r.kode_salesman === sales);
   const rp = ringkasPenagihan(pen);
 
   const row = (l: LangkahKunjungan, detail: string) => {
@@ -677,8 +881,9 @@ function SelesaiStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
   return (
     <>
       <Card className="divide-y divide-slate-100 px-4">
-        {row('collection', pen.length ? `${pen.length} faktur diupdate · terkumpul ${formatRupiah(rp.terkumpul)}` : 'Tidak ada penagihan')}
         {row('stok', stok ? `${stok.internal.length} SKU · ${stok.kompetitor.length} produk kompetitor` : 'Dilewati')}
+        {row('retur', retur.length ? `${retur.length} retur · ${formatRupiah(retur.reduce((t, r) => t + r.nominal, 0))} memotong tagihan` : 'Tidak ada retur')}
+        {row('collection', pen.length ? `${pen.length} faktur diupdate · terkumpul ${formatRupiah(rp.terkumpul)}` : 'Tidak ada penagihan')}
         {row('po', po.length ? `${po.length} PO · ${formatRupiah(po.reduce((s, p) => s + p.total, 0))}` : 'Tidak ada order')}
       </Card>
       {selesai ? (

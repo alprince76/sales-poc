@@ -1,5 +1,6 @@
 /** Ringkasan & warning setelah upload (US-A1, US-A2). Pure. */
 import { normKode } from './billing';
+import { kunciBaris } from './jenisData';
 import type { TipeData } from './parse';
 import type { DataSet, Kunjungan, MasterToko } from './types';
 
@@ -129,7 +130,7 @@ export function ringkasUpload(
     const toko = new Set(data.msl.map((m) => normKode(m.kode_toko)));
     return {
       baris: [
-        { label: 'Baris MSL', nilai: data.msl.length.toLocaleString('id-ID') },
+        { label: 'Baris SKU Listed', nilai: data.msl.length.toLocaleString('id-ID') },
         { label: 'Toko', nilai: toko.size.toLocaleString('id-ID') },
         { label: 'Listed', nilai: data.msl.filter((m) => m.status_listed).length.toLocaleString('id-ID') },
       ],
@@ -177,4 +178,63 @@ export function hitungSegmen(data: DataSet, tipe: 'master' | 'pjp', channel: Cha
   if (tipe === 'master') return data.master.filter((m) => chOf(m) === channel).length;
   const ch = new Map(data.master.map((m) => [normKode(m.kode_toko), chOf(m)]));
   return data.pjp.filter((k) => (ch.get(normKode(k.kode_toko)) ?? 'GT') === channel).length;
+}
+
+// ── Upload "tambah & perbarui" (upsert): data lama tetap, kunci sama diganti isi file, kunci baru ditambah. ──
+export interface HasilUpsert<T> {
+  rows: T[];
+  baru: number;
+  diperbarui: number;
+  /** Baris di file yang isinya sama persis dengan data lama. */
+  sama: number;
+  /** Baris lama yang tidak disentuh file. */
+  tetap: number;
+  /** Store: toko yang sebelumnya terdaftar di channel lain lalu dipindah ke channel kartu ini. */
+  pindahChannel: number;
+}
+
+/** Kunci upsert per tipe (null = tidak bisa digabung → baris selalu ditambah). Histori: toko + SKU + tanggal PO. */
+export function kunciUpsert(tipe: TipeData, r: Record<string, unknown>): string | null {
+  if (tipe === 'histori') return `${normKode(String(r.kode_toko ?? ''))}|${normKode(String(r.kode_sku ?? ''))}|${String(r.tanggal_po ?? '')}`;
+  return kunciBaris(tipe, r);
+}
+
+const samaJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Gabungkan baris file ke data lama. Store GT/MT: baris file dipaksa ke channel kartu.
+ * Urutan data lama dipertahankan; baris baru di belakang.
+ */
+export function gabungUpsert<T>(tipe: TipeData, lama: readonly T[], file: readonly T[], channel?: ChannelUpload): HasilUpsert<T> {
+  const masuk = (tipe === 'master' && channel ? file.map((m) => ({ ...(m as object), channel }) as T) : [...file]);
+  const posLama = new Map<string, number>();
+  lama.forEach((r, i) => {
+    const k = kunciUpsert(tipe, r as Record<string, unknown>);
+    if (k !== null && !posLama.has(k)) posLama.set(k, i);
+  });
+  const rows = [...lama];
+  const disentuh = new Set<number>();
+  let baru = 0;
+  let diperbarui = 0;
+  let sama = 0;
+  let pindahChannel = 0;
+  for (const r of masuk) {
+    const k = kunciUpsert(tipe, r as Record<string, unknown>);
+    const i = k === null ? undefined : posLama.get(k);
+    if (i === undefined) {
+      rows.push(r);
+      if (k !== null) posLama.set(k, rows.length - 1);
+      baru++;
+      continue;
+    }
+    if (tipe === 'master' && channel && chOf(rows[i] as { channel?: string }) !== channel) pindahChannel++;
+    if (samaJson(rows[i], r)) sama++;
+    else {
+      rows[i] = r;
+      if (i < lama.length && !disentuh.has(i)) diperbarui++;
+    }
+    disentuh.add(i);
+  }
+  const tetap = lama.length - [...disentuh].filter((i) => i < lama.length).length;
+  return { rows, baru, diperbarui, sama, tetap, pindahChannel };
 }

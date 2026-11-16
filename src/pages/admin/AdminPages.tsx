@@ -1,4 +1,5 @@
 import { Check, Minus, Search } from 'lucide-react';
+import { useIzin } from '../../auth';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { BayarBadge, DetailTokoView } from '../../components/DetailTokoView';
 import { useKunjungan } from '../../components/KunjunganPanel';
@@ -204,11 +205,11 @@ function RuteMT({ sales, D, actions }: { sales: string; D: string; actions: Reac
   const warning = rows.reduce((s, r) => s + r.warning, 0);
   const tokoPO = new Set(po.map((p) => p.kode_toko));
   return (
-    <AdminPage title="Rute Salesman" description="Modern Trade: kunjungan & status MSL per toko." actions={actions}>
+    <AdminPage title="Rute Salesman" description="Modern Trade: kunjungan & status SKU Listed per toko." actions={actions}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryCard label="Kunjungan" value={rows.length} hint={`${rows.filter((r) => tokoPO.has(r.kode_toko)).length} toko sudah order`} />
-        <SummaryCard label="MSL aktif" value={`${listed ? Math.round(((listed - warning) / listed) * 100) : 100}%`} accent="green" hint={`${listed - warning}/${listed} SKU`} />
-        <SummaryCard label="SKU untransacted" value={warning} accent={warning ? 'red' : undefined} />
+        <SummaryCard label="SKU Listed aktif" value={`${listed ? Math.round(((listed - warning) / listed) * 100) : 100}%`} accent="green" hint={`${listed - warning}/${listed} SKU`} />
+        <SummaryCard label="SKU Belum Transaksi" value={warning} accent={warning ? 'red' : undefined} />
         <SummaryCard label="PO" value={formatRupiah(po.reduce((s, p) => s + p.total, 0))} accent="brand" hint={`${po.length} PO`} />
       </div>
       <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -224,8 +225,8 @@ function RuteMT({ sales, D, actions }: { sales: string; D: string; actions: Reac
                   <th className="w-10">#</th>
                   <th>Toko</th>
                   <th className="text-right">Listed</th>
-                  <th className="text-right">Untransacted</th>
-                  <th className="min-w-[140px]">MSL aktif</th>
+                  <th className="text-right">Belum Transaksi</th>
+                  <th className="min-w-[140px]">SKU Listed aktif</th>
                   <th>PO hari ini</th>
                 </tr>
               }
@@ -419,6 +420,12 @@ export function PenagihanPage() {
   const [sales, setSales] = useState('');
   const [status, setStatus] = useState<'' | StatusBayar>('');
   const [tgl, setTgl] = useState('');
+  const [tab, setTab] = useState<'penagihan' | 'retur'>('penagihan');
+  const retur = (aktivitas.retur ?? [])
+    .filter((x) => (!sales || x.kode_salesman === sales) && (!tgl || x.tanggal === tgl))
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const totalRetur = retur.reduce((t, x) => t + x.nominal, 0);
   const nama = namaTokoFn(masterIdx);
   const namaSR = (k: string) => salesmen.find((s) => s.kode === k)?.nama ?? k;
 
@@ -429,7 +436,28 @@ export function PenagihanPage() {
   const r = ringkasPenagihan(rows);
 
   const exportCSV = (fmt: FormatEkspor) =>
-    ekspor(
+    tab === 'retur'
+      ? ekspor(
+          fmt,
+          `retur${tgl ? `-${tgl}` : ''}`,
+          retur.flatMap((x) =>
+            x.items.map((i) => ({
+              waktu: x.createdAt,
+              tanggal_kunjungan: x.tanggal,
+              kode_salesman: x.kode_salesman,
+              kode_toko: x.kode_toko,
+              nama_toko: nama(x.kode_toko),
+              no_faktur: x.no_faktur,
+              kode_sku: i.kode_sku,
+              nama_sku: i.nama_sku,
+              qty: i.qty,
+              harga: i.harga,
+              subtotal: i.subtotal,
+              total_retur: x.nominal,
+            })),
+          ),
+        )
+      : ekspor(
       fmt,
       `collection${tgl ? `-${tgl}` : ''}`,
       (
@@ -452,21 +480,35 @@ export function PenagihanPage() {
   return (
     <AdminPage
       title="Collection"
-      description="Log update status penagihan (collection) dari salesman."
-      actions={
-        <ExportMenu onExport={exportCSV} disabled={!rows.length} />
-      }
+      description="Log update status penagihan (collection) dan retur yang memotong tagihan, dari salesman."
+      actions={<ExportMenu onExport={exportCSV} disabled={tab === 'retur' ? !retur.length : !rows.length} />}
     >
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
         <SummaryCard label="Terkumpul" value={formatRupiah(r.terkumpul)} accent="green" />
         <SummaryCard label="Paid" value={r.jumlahPaid} />
         <SummaryCard label="Partially Paid" value={r.jumlahPartial} />
         <SummaryCard label="Janji Bayar" value={r.jumlahJanji} />
         <SummaryCard label="Bad Debt" value={r.jumlahBadDebt} accent={r.jumlahBadDebt ? 'red' : undefined} />
+        <SummaryCard label="Retur" value={formatRupiah(totalRetur)} hint={`${retur.length} retur`} onClick={() => setTab('retur')} aktif={tab === 'retur'} />
       </div>
-      <Card className="mt-5 overflow-hidden">
+      <div className="mt-5 flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-medium sm:w-fit" role="tablist">
+        {(['penagihan', 'retur'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={cn('rounded-lg px-4 py-1.5', tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900')}
+          >
+            {t === 'penagihan' ? `Penagihan (${rows.length})` : `Retur (${retur.length})`}
+          </button>
+        ))}
+      </div>
+      <Card className="mt-3 overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3">
           <SalesSelect value={sales} onChange={setSales} />
+          {tab === 'penagihan' && (
           <Select label="Status" value={status} onChange={(v) => setStatus(v as '' | StatusBayar)}>
             <option value="">Semua status</option>
             {(Object.keys(LABEL_STATUS_BAYAR) as StatusBayar[]).map((s) => (
@@ -475,6 +517,7 @@ export function PenagihanPage() {
               </option>
             ))}
           </Select>
+          )}
           <Input type="date" value={tgl} onChange={(e) => setTgl(e.target.value)} aria-label="Tanggal kunjungan" className="h-10 w-auto text-sm" />
           {tgl && (
             <Button size="sm" variant="ghost" onClick={() => setTgl('')}>
@@ -482,6 +525,41 @@ export function PenagihanPage() {
             </Button>
           )}
         </div>
+        {tab === 'retur' ? (
+          <Table
+            empty={!retur.length && <div className="p-4"><EmptyState title="Belum ada retur">Retur dicatat salesman di langkah Retur saat kunjungan.</EmptyState></div>}
+            head={
+              <tr>
+                <th>Waktu</th>
+                <th>Salesman</th>
+                <th>Toko</th>
+                <th>Faktur dipotong</th>
+                <th>Barang</th>
+                <th className="text-right">Nilai retur</th>
+              </tr>
+            }
+          >
+            {retur.map((x) => (
+              <tr key={x.id}>
+                <td className="whitespace-nowrap text-xs text-slate-600">{formatTimestamp(x.createdAt)}</td>
+                <td className="whitespace-nowrap">{namaSR(x.kode_salesman)}</td>
+                <td>
+                  <div className="font-medium text-slate-900">{nama(x.kode_toko)}</div>
+                  <div className="font-mono text-xs text-slate-500">{x.kode_toko}</div>
+                </td>
+                <td className="font-mono text-xs">{x.no_faktur || <span className="font-sans text-slate-400">Tanpa potong tagihan</span>}</td>
+                <td className="text-xs text-slate-700">
+                  {x.items.map((i) => (
+                    <div key={i.kode_sku}>
+                      {i.nama_sku} × {i.qty} @ {formatRupiah(i.harga)}
+                    </div>
+                  ))}
+                </td>
+                <td className="text-right font-semibold tabular">{formatRupiah(x.nominal)}</td>
+              </tr>
+            ))}
+          </Table>
+        ) : (
         <Table
           empty={!rows.length && <div className="p-4"><EmptyState title="Belum ada penagihan">Update status dilakukan salesman dari menu Collection / Tagihan.</EmptyState></div>}
           head={
@@ -511,6 +589,7 @@ export function PenagihanPage() {
             </tr>
           ))}
         </Table>
+        )}
       </Card>
     </AdminPage>
   );
@@ -519,6 +598,7 @@ export function PenagihanPage() {
 // ───────────────────────── Purchase Order ─────────────────────────
 
 export function POPage() {
+  const izinPO = useIzin('ops.po');
   const { aktivitas, masterIdx, salesmen, channelToko } = useData();
   const [sales, setSales] = useState('');
   const [channel, setChannel] = useState('');
@@ -567,7 +647,7 @@ export function POPage() {
       title="Purchase Order"
       description="PO yang dikirim salesman. Export = payload untuk ERP pusat (simulasi), format CSV / TXT / Excel."
       actions={
-        <ExportMenu onExport={exportCSV} disabled={!rows.length} label="Export ke ERP" />
+        izinPO.ubah ? <ExportMenu onExport={exportCSV} disabled={!rows.length} label="Export ke ERP" /> : undefined
       }
     >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

@@ -10,6 +10,7 @@ import { formatRupiah } from '../../lib/format';
 import { compliance, labelWarning, ringkasPrincipal, teksTerakhirOrder, type SkuMSL } from '../../lib/msl';
 import { formatQty, historiToko, suggestedQty, validasiPO, type ProdukLengkap } from '../../lib/order';
 import { QtyUnit } from '../../components/QtyUnit';
+import { BelumTerkirim } from '../sales/SalesLayout';
 
 /** MT tidak memakai MOQ: saran qty dihitung tanpa pembulatan MOQ. */
 const TANPA_MOQ = { moq: 1 };
@@ -21,7 +22,7 @@ import { SkuRow, useMslToko } from './shared';
 type Step = 'po' | 'msl' | 'summary';
 const STEPS: { id: Step; label: string }[] = [
   { id: 'po', label: 'Input PO' },
-  { id: 'msl', label: 'Cek MSL' },
+  { id: 'msl', label: 'Cek SKU Listed' },
   { id: 'summary', label: 'Summary' },
 ];
 
@@ -83,6 +84,7 @@ export function MtTokoPage() {
             </div>
             {v.items.length > 0 && <Badge tone="brand">{v.items.length} SKU</Badge>}
           </div>
+          <BelumTerkirim inline />
           <ol className="mt-2 grid grid-cols-3 gap-1">
             {STEPS.map((s, i) => {
               const idx = STEPS.findIndex((x) => x.id === step);
@@ -161,7 +163,7 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
       <SkuPicker produk={aktifProduk} terpilih={new Set(Object.keys(k))} onPilih={tambah} label="Cari SKU untuk PO" />
       {items.length === 0 ? (
         <EmptyState icon={<ShoppingCart size={20} />} title="Belum ada item PO">
-          Cari SKU berdasarkan kode atau nama. Setelah itu, cek SKU MSL yang belum ditransaksikan di langkah berikutnya.
+          Cari SKU berdasarkan kode atau nama. Setelah itu, cek SKU Listed yang belum ditransaksikan di langkah berikutnya.
         </EmptyState>
       ) : (
         <section>
@@ -203,7 +205,7 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
           </ul>
         </section>
       )}
-      <TotalBar kodeToko={kodeToko} label="Cek MSL" onClick={onNext} />
+      <TotalBar kodeToko={kodeToko} label="Cek SKU Listed" onClick={onNext} />
     </>
   );
 }
@@ -227,7 +229,7 @@ function CekMslStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void
   if (!list.length)
     return (
       <>
-        <EmptyState title="Belum ada SKU listed untuk toko ini">Admin perlu upload data MSL.</EmptyState>
+        <EmptyState title="Belum ada SKU listed untuk toko ini">Admin perlu upload Data SKU Listed per Store MT.</EmptyState>
         <TotalBar kodeToko={kodeToko} label="Summary" onClick={onNext} />
       </>
     );
@@ -237,7 +239,7 @@ function CekMslStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void
       <Card className="p-4">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <div className="text-xs font-medium uppercase text-slate-500">MSL aktif</div>
+            <div className="text-xs font-medium uppercase text-slate-500">SKU Listed aktif</div>
             <div className="text-2xl font-bold tabular text-slate-900">
               {after.aktif}/{after.listed} <span className="text-base font-semibold text-slate-500">SKU</span>
             </div>
@@ -285,7 +287,7 @@ function CekMslStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void
               <span className="font-semibold leading-snug text-slate-900">{p.principal}</span>
               <span className="text-xs text-slate-500">{p.total} SKU</span>
               {p.warning > 0 ? (
-                <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">{p.warning} SKU Untransacted</span>
+                <span className="rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold text-white">{p.warning} SKU Belum Transaksi</span>
               ) : (
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
                   <CheckCircle2 size={14} /> Semua aktif
@@ -344,7 +346,7 @@ function SummaryStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
   return (
     <>
       <Card className="p-4">
-        <SectionTitle>Ringkasan MSL</SectionTitle>
+        <SectionTitle>Ringkasan SKU Listed</SectionTitle>
         <div className="grid grid-cols-3 items-end gap-2 text-center">
           <div>
             <div className="text-xs text-slate-500">Sebelum PO</div>
@@ -367,7 +369,7 @@ function SummaryStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
 
       {sisa.length > 0 && (
         <section>
-          <SectionTitle right={<button type="button" className="text-sm font-semibold text-violet-700" onClick={() => onGo('msl')}>Lihat di Cek MSL</button>}>
+          <SectionTitle right={<button type="button" className="text-sm font-semibold text-violet-700" onClick={() => onGo('msl')}>Lihat di Cek SKU Listed</button>}>
             Masih belum transaksi ({sisa.length})
           </SectionTitle>
           <Card className="divide-y divide-slate-100 px-3">

@@ -2,8 +2,8 @@
   command = "npm run build"
   publish = "dist"
 
-# API sinkron data master (netlify/functions/data.mts → /api/data/*).
-# Env: NETLIFY_DATABASE_URL atau DATABASE_URL (Neon Postgres gratis), ADMIN_TOKEN.
+# API: data master (/api/data/*), aktivitas sales (/api/aktivitas), login & RBAC (/api/auth/*, /api/pengguna, /api/peran).
+# Env: NETLIFY_DATABASE_URL atau DATABASE_URL (Neon Postgres gratis); SUPERADMIN_EMAIL + SUPERADMIN_PASSWORD (akun pertama).
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"

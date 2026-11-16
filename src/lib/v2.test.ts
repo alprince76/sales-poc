@@ -213,13 +213,15 @@ describe('Cek Stok', () => {
 describe('Stepper kunjungan', () => {
   it('langkah berurutan, selesaikan menandai sisa sebagai DILEWATI', () => {
     let l = tandaiLangkah([], 'sls01', 'tk1', D, 'collection', 'SELESAI');
+    // v15: urutan Stok → Retur → Collection → PO
     expect(langkahBerikut(cariKunjungan(l, 'SLS01', 'TK1', D))).toBe('stok');
+    expect(langkahBerikut(cariKunjungan(tandaiLangkah(l, 'SLS01', 'TK1', D, 'stok', 'SELESAI'), 'SLS01', 'TK1', D))).toBe('retur');
     l = tandaiLangkah(l, 'SLS01', 'TK1', D, 'collection', 'DILEWATI'); // tidak menurunkan SELESAI
     expect(cariKunjungan(l, 'SLS01', 'TK1', D)?.langkah.collection).toBe('SELESAI');
     expect(isSelesai(cariKunjungan(l, 'SLS01', 'TK1', D))).toBe(false);
     l = selesaikan(l, 'SLS01', 'TK1', D, 'now');
     const s = cariKunjungan(l, 'SLS01', 'TK1', D)!;
-    expect(s.langkah).toEqual({ collection: 'SELESAI', stok: 'DILEWATI', po: 'DILEWATI' });
+    expect(s.langkah).toEqual({ collection: 'SELESAI', stok: 'DILEWATI', retur: 'DILEWATI', po: 'DILEWATI' });
     expect(isSelesai(s)).toBe(true);
     expect(l).toHaveLength(1);
   });

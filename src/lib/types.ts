@@ -190,7 +190,28 @@ export interface PurchaseOrder {
   createdAt: string;
 }
 
-export type LangkahKunjungan = 'collection' | 'stok' | 'po';
+export type LangkahKunjungan = 'stok' | 'retur' | 'collection' | 'po';
+
+/** Retur barang di kunjungan GT: nilai (qty × harga SKU) memotong sisa tagihan satu faktur toko. */
+export interface ItemRetur {
+  kode_sku: string;
+  nama_sku: string;
+  /** Qty dalam satuan dasar (Pcs). */
+  qty: number;
+  harga: number;
+  subtotal: number;
+}
+export interface Retur {
+  id: string;
+  kode_toko: string;
+  kode_salesman: string;
+  tanggal: ISODate;
+  /** Faktur yang dipotong tagihannya; '' = retur dicatat tanpa memotong tagihan. */
+  no_faktur: string;
+  items: ItemRetur[];
+  nominal: number;
+  createdAt: string;
+}
 export type HasilLangkah = 'SELESAI' | 'DILEWATI';
 
 export interface StatusKunjungan {
@@ -206,4 +227,5 @@ export interface Aktivitas {
   stok: CekStok[];
   po: PurchaseOrder[];
   kunjungan: StatusKunjungan[];
+  retur: Retur[];
 }

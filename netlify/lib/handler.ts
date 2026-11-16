@@ -1,5 +1,5 @@
 /**
- * API data master (tanpa login — POC):
+ * API data master (wajib login; izin per menu — lihat src/lib/akses.ts):
  *   GET    /api/data/meta          versi & jumlah per jenis
  *   GET    /api/data/:tipe         semua baris
  *   PUT    /api/data/:tipe         ganti semua baris (upload Excel / seed). Body = JSON array, boleh gzip (x-body-encoding: gzip).
@@ -7,6 +7,8 @@
  *   PATCH  /api/data/:tipe         CRUD satu baris: { op: 'tambah', baru } | { op: 'ubah', lama, baru } | { op: 'hapus', lama }
  *   DELETE /api/data/:tipe         hapus jenis data (kembali ke dummy)
  */
+import { menuMasterUntuk } from '../../src/lib/akses';
+import { BELUM_LOGIN, tolak, type Sesi } from './auth';
 import { BarisTidakAda, KonflikVersi, TIPE, type OpBaris, type Store, type Tipe } from './store';
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
@@ -38,12 +40,21 @@ function opValid(b: unknown): b is OpBaris {
   return false;
 }
 
-export async function handle(req: Request, store: Store | null): Promise<Response> {
+/** Aksi Master Data untuk operasi baris. */
+const AKSI_OP = { tambah: 'tambah', ubah: 'ubah', hapus: 'hapus' } as const;
+const channelBaris = (b: unknown): 'GT' | 'MT' | undefined => {
+  const c = String((b as { channel?: unknown } | null)?.channel ?? '').trim().toUpperCase();
+  return c === 'MT' ? 'MT' : c ? 'GT' : undefined;
+};
+
+export async function handle(req: Request, store: Store | null, sesi: Sesi | null): Promise<Response> {
   const path = new URL(req.url).pathname.replace(/\/+$/, '');
   const seg = path.split('/').filter(Boolean); // ['api','data', ...]
   const target = seg[2] ?? 'meta';
 
   if (!store) return gagal(503, 'Database belum dikonfigurasi (set DATABASE_URL / NETLIFY_DATABASE_URL).');
+  // Semua pengguna yang login boleh membaca master data (aplikasi sales butuh); menulis butuh izin.
+  if (!sesi) return BELUM_LOGIN();
 
   if (target === 'meta') {
     if (req.method !== 'GET') return gagal(405, 'Method tidak didukung');
@@ -59,7 +70,10 @@ export async function handle(req: Request, store: Store | null): Promise<Respons
   }
 
   if (req.method === 'DELETE') {
+    const t = tolak(sesi, 'data.upload', 'hapus');
+    if (t) return t;
     await store.hapus(tipe);
+    await sesi.catat('hapus-semua', `data:${tipe}`);
     return json(200, { ok: true });
   }
 
@@ -72,8 +86,13 @@ export async function handle(req: Request, store: Store | null): Promise<Respons
 
   if (req.method === 'PATCH') {
     if (!opValid(body)) return gagal(400, "Format operasi salah. Pakai { op: 'tambah'|'ubah'|'hapus', lama?, baru? }");
+    const ch = tipe === 'master' ? channelBaris('baru' in body ? body.baru : body.lama) ?? 'GT' : undefined;
+    const t = tolak(sesi, menuMasterUntuk(tipe, ch), AKSI_OP[body.op]);
+    if (t) return t;
     try {
-      return json(200, { ok: true, data: await store.ubahBaris(tipe, body) });
+      const info = await store.ubahBaris(tipe, body);
+      await sesi.catat(body.op, `data:${tipe}`, body);
+      return json(200, { ok: true, data: info });
     } catch (e) {
       if (e instanceof BarisTidakAda) return gagal(404, e.message);
       throw e;
@@ -81,12 +100,16 @@ export async function handle(req: Request, store: Store | null): Promise<Respons
   }
 
   if (req.method === 'PUT') {
+    const t = tolak(sesi, 'data.upload', 'tambah');
+    if (t) return t;
     if (!Array.isArray(body)) return gagal(400, 'Body harus berupa array baris');
     const bv = req.headers.get('x-base-version');
     const base = bv === null || bv === '' ? undefined : Number(bv);
     if (base !== undefined && !Number.isInteger(base)) return gagal(400, 'x-base-version tidak valid');
     try {
-      return json(200, { ok: true, data: await store.simpan(tipe, JSON.stringify(body), body.length, base) });
+      const info = await store.simpan(tipe, JSON.stringify(body), body.length, base);
+      await sesi.catat(base === 0 ? 'seed' : 'upload', `data:${tipe}`, { jumlah: body.length, version: info.version });
+      return json(200, { ok: true, data: info });
     } catch (e) {
       if (e instanceof KonflikVersi) return json(409, { ok: false, error: e.message, version: e.versiServer });
       throw e;

@@ -229,10 +229,10 @@ export function DashboardMTPage() {
   const persen = tot.listed ? Math.round(((tot.listed - tot.warning) / tot.listed) * 100) : 100;
 
   return (
-    <AdminPage title="Dashboard MT" description="Modern Trade: toko order, MSL compliance, dan PO per SR." actions={<Tanggal D={D} setD={setD} />}>
+    <AdminPage title="Dashboard MT" description="Modern Trade: toko order, SKU Listed compliance, dan PO per SR." actions={<Tanggal D={D} setD={setD} />}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryCard label="Toko order" icon={<Store size={12} />} value={`${tot.tokoOrder}/${tot.kunjungan}`} accent="green" hint="Toko PJP dengan PO" />
-        <SummaryCard label="MSL compliance" icon={<ListChecks size={12} />} value={`${persen}%`} hint={`${tot.listed - tot.warning}/${tot.listed} SKU listed aktif`} />
+        <SummaryCard label="SKU Listed compliance" icon={<ListChecks size={12} />} value={`${persen}%`} hint={`${tot.listed - tot.warning}/${tot.listed} SKU listed aktif`} />
         <SummaryCard label="SKU belum transaksi" icon={<AlertOctagon size={12} />} value={tot.warning} accent={tot.warning ? 'red' : undefined} hint="Listed, no order > 30 hari" />
         <SummaryCard label="Nilai PO" icon={<ShoppingCart size={12} />} value={formatRupiah(tot.poNilai)} accent="brand" hint={`${tot.poCount} PO`} />
       </div>
@@ -242,7 +242,7 @@ export function DashboardMTPage() {
           <div className="flex items-center justify-between px-4 py-3">
             <h2 className="font-semibold text-slate-900">Per SR</h2>
             <Link to="/admin/msl" className="text-sm font-medium text-brand-700 hover:underline">
-              MSL Compliance
+              SKU Listed Compliance
             </Link>
           </div>
           <Table
@@ -251,7 +251,7 @@ export function DashboardMTPage() {
               <tr>
                 <th>SR</th>
                 <th>Toko order</th>
-                <th>MSL compliance</th>
+                <th>SKU Listed compliance</th>
                 <th className="text-right">SKU belum transaksi</th>
                 <th className="text-right">PO</th>
               </tr>

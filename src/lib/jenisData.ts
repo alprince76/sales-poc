@@ -25,7 +25,7 @@ export const JENIS_DATA: JenisData[] = [
   { id: 'sku', tipe: 'produk', nama: 'Data SKU', menu: 'SKU', desc: 'Kode SKU, nama (new material), principal, sub brand, harga dasar, status aktif' },
   { id: 'moq-gt', tipe: 'rules', nama: 'Data MOQ GT', menu: 'MOQ GT', desc: 'Satuan, MOQ per item (flag), isi per karton (CAR) — khusus GT' },
   { id: 'sku-listed-mt', tipe: 'msl', nama: 'Data SKU Listed per Store MT', menu: 'SKU Listed MT', desc: 'SKU yang wajib ada di outlet MT (status_listed YES/NO)' },
-  { id: 'histori-gt', tipe: 'histori', nama: 'Data Historical Order Outlet GT', menu: 'Historical Order GT', desc: 'Pembelian toko per SKU (suggested order, last order, MSL)' },
+  { id: 'histori-gt', tipe: 'histori', nama: 'Data Historical Order Outlet GT', menu: 'Historical Order GT', desc: 'Pembelian toko per SKU (suggested order, last order, SKU Listed)' },
   { id: 'price', tipe: 'price', nama: 'Price List', menu: 'Price List', desc: 'Harga per SKU per channel (GT/MT; kosong = semua). Menggantikan harga Master SKU' },
 ];
 

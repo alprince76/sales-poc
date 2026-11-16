@@ -1,10 +1,10 @@
-/** Status kunjungan (stepper Collection → Stok → PO). Immutable helpers. */
+/** Status kunjungan (stepper Stok → Retur → Collection → PO). Immutable helpers. */
 import type { ISODate } from './dates';
 import { normKode } from './billing';
 import type { HasilLangkah, LangkahKunjungan, StatusKunjungan } from './types';
 
-export const LANGKAH: LangkahKunjungan[] = ['collection', 'stok', 'po'];
-export const LABEL_LANGKAH: Record<LangkahKunjungan, string> = { collection: 'Collection', stok: 'Cek Stok', po: 'Purchase Order' };
+export const LANGKAH: LangkahKunjungan[] = ['stok', 'retur', 'collection', 'po'];
+export const LABEL_LANGKAH: Record<LangkahKunjungan, string> = { stok: 'Cek Stok', retur: 'Retur', collection: 'Collection', po: 'Purchase Order' };
 
 const cocok = (s: StatusKunjungan, sales: string, toko: string, D: ISODate) =>
   s.kode_salesman === sales && s.kode_toko === toko && s.tanggal === D;

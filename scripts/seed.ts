@@ -2,7 +2,6 @@
  * Seed data master ke server (Neon Postgres) dari docs/Dummy_ROVI_PJP.xlsx (data asli MD + SKU NEFOKAM).
  *
  *   npm run seed                                  # langsung ke DB (DATABASE_URL / NETLIFY_DATABASE_URL, boleh dari .env)
- *   npm run seed -- --api=https://xxx.netlify.app               # lewat API site yang sudah deploy
  * Opsi: --only=rules,produk  --force (timpa yang sudah ada)  --file=path.xlsx
  * Default: hanya mengisi jenis yang BELUM ada di server (data upload admin tidak tertimpa).
  */
@@ -34,6 +33,8 @@ async function main() {
 
   if (api) {
     const meta = await fetch(`${api}/api/data/meta`);
+    if (meta.status === 401)
+      throw new Error('API sekarang wajib login. Seed langsung ke Neon (isi DATABASE_URL di .env lalu `npm run seed`), atau login sebagai admin lalu klik "Seed server" di Data & Upload.');
     const body = (await meta.json().catch(() => null)) as { ok?: boolean; data?: Record<string, unknown>; error?: string } | null;
     if (!meta.ok || !body?.ok) throw new Error(`API meta gagal (${meta.status}): ${body?.error ?? 'bukan JSON — cek URL & deploy function'}`);
     ada = Object.keys(body.data ?? {});
@@ -49,7 +50,7 @@ async function main() {
     };
   } else {
     const url = process.env.NETLIFY_DATABASE_URL || process.env.DATABASE_URL;
-    if (!url) throw new Error('Set DATABASE_URL (connection string Neon) di env / .env, atau pakai --api=https://<site>');
+    if (!url) throw new Error('Set DATABASE_URL (connection string Neon) di env / .env, atau login admin lalu klik "Seed server" di Data & Upload');
     const store = neonStore(url);
     ada = Object.keys(await store.meta());
     simpan = (t, rows) => store.simpan(t, JSON.stringify(rows), rows.length, flag('force') ? undefined : 0);

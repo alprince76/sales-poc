@@ -33,6 +33,8 @@ Netlify → pilih site → **Site configuration → Environment variables → Ad
 | Key | Value | Keterangan |
 |---|---|---|
 | `DATABASE_URL` | connection string dari langkah 1.3 | Tidak perlu bila memakai Extension Neon (`NETLIFY_DATABASE_URL`). |
+| `SUPERADMIN_EMAIL` | email Super Admin | Akun dibuat otomatis bila belum ada. |
+| `SUPERADMIN_PASSWORD` | password Super Admin | Disamakan dengan env setiap deploy/start (kunci login juga dibuka) **selama belum diganti/di-reset dari aplikasi**. Setelah diganti di aplikasi, env tidak menimpa lagi. |
 
 Scope: *All scopes*. Context: *All deploy contexts* (atau minimal *Production*).
 
@@ -47,6 +49,17 @@ Cek API: buka `https://<site-anda>.netlify.app/api/data/meta`
 - `503 … Database belum dikonfigurasi` → `DATABASE_URL`/`NETLIFY_DATABASE_URL` belum terbaca. Cek langkah 2, lalu deploy ulang.
 - Halaman HTML (bukan JSON) → function belum ter-deploy. Cek log build: harus ada bagian *Functions bundling* yang menyebut `data`.
 
+## 3b. Login pertama & akun pengguna
+
+1. Buka `https://<site>/` → halaman **Login** → tab **Admin** → masuk dengan `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` (persis seperti di env, boleh berisi `#`/`$`).
+2. **Pengguna & Peran** (sidebar → Pengguna):
+   - **Peran & Akses**: pilih peran, centang Tambah/Lihat/Ubah/Hapus per menu, lalu Simpan. Peran bawaan: Super Admin (terkunci, semua akses), Admin, Supervisor, Sales GT, Sales MT. Peran baru bisa ditambah.
+   - **Pengguna → Buat akun N salesman**: membuat akun untuk semua SR di Master Store (PIN awal acak). **Unduh daftar PIN** (hanya tampil sekali) lalu bagikan ke tiap SR. SR login dengan **kode SR + PIN** dan wajib mengganti PIN saat login pertama.
+   - **Tambah pengguna**: akun admin/supervisor (email + password). Atur **lingkup salesman** bila hanya boleh melihat SR tertentu.
+3. Semua API sekarang wajib login. Izin dicek di server (bukan hanya disembunyikan di layar). Perubahan data, login, dan pengelolaan pengguna tercatat di **Log aktivitas admin** (halaman Pengguna).
+
+Tabel `peran`, `pengguna`, `sesi`, `batas_login`, `audit` dibuat otomatis.
+
 ## 4. Seed data awal (supaya tidak kosong)
 
 Seed mengisi DB dengan data yang sekarang dipakai aplikasi (`docs/Dummy_ROVI_PJP.xlsx`):
@@ -60,12 +73,8 @@ Pilih salah satu cara:
 
 **A. Dari dashboard (paling mudah)**
 1. Buka `https://<site>/admin/data`. Banner hijau harus berbunyi **"Tersambung ke server"**.
-2. Klik **Seed server (8 jenis)**, lalu konfirmasi. Tunggu toast *"Seed selesai"*. Setiap kartu kemudian berlabel **Server · v1**.
+2. (Login sebagai Super Admin/Admin dulu.) Klik **Seed server (8 jenis)**, lalu konfirmasi. Tunggu toast *"Seed selesai"*. Setiap kartu kemudian berlabel **Server · v1**.
 
-**B. Dari terminal, lewat API site yang sudah deploy**
-```bash
-npm run seed -- --api=https://<site>.netlify.app
-```
 
 **C. Dari terminal, langsung ke Neon** (tanpa perlu deploy dulu)
 ```bash
@@ -96,6 +105,7 @@ Seed selesai.
 Cek di Neon SQL Editor:
 ```sql
 SELECT tipe, jumlah, version, updated_at FROM dataset ORDER BY tipe;
+SELECT jenis, count(*) FROM aktivitas GROUP BY jenis;   -- PO, penagihan, stok, kunjungan dari HP sales
 ```
 
 ## 5. Pakai sehari-hari
@@ -103,12 +113,19 @@ SELECT tipe, jumlah, version, updated_at FROM dataset ORDER BY tipe;
 - **Admin → Master Data → (submenu)**: lihat list, cari, **tambah, edit, atau hapus per baris** (langsung tersimpan, tanpa PIN).
 - **Admin → Data & Upload**: ganti satu jenis data sekaligus dari file Excel. Store/PJP GT dan MT dipisah.
 - HP sales mengambil pembaruan **tiap 60 detik** dan setiap kali aplikasi dibuka, lalu menampilkan toast *"Data diperbarui admin"*.
+- **Aktivitas sales** (PO, penagihan, cek stok, status kunjungan) juga tersimpan di database (tabel `aktivitas`, dibuat otomatis lewat `/api/aktivitas`). Dashboard admin di perangkat mana pun ikut terbarui ±15 detik. Saat HP offline, data disimpan di HP lalu dikirim otomatis begitu online.
+- Nomor PO: `PO/YYYY/MM/<kode SR>-NNNN`, unik lintas perangkat.
+- **Reset aktivitas** (Data & Upload) menghapus semua aktivitas di database, dan semua perangkat ikut kosong.
 - **Reset ke data dummy** (Data & Upload) menghapus semua data di server. Untuk mengisinya lagi, jalankan seed ulang.
 
 ## Troubleshooting
 
 | Gejala | Penyebab & solusi |
 |---|---|
+| **Lupa password/PIN** | Admin → Pengguna → ikon kunci (Reset). Password/PIN sementara tampil sekali; wajib diganti saat login. |
+| **"Terlalu banyak percobaan"** | 5× salah dalam 15 menit → akun dikunci 15 menit. Reset PIN oleh admin juga membuka kunci. |
+| **"Tidak punya akses ke menu ini"** | Peran pengguna belum diberi izin Lihat. Atur di Peran & Akses. |
+| Super Admin tidak bisa login / terkunci | Pastikan `SUPERADMIN_*` terisi, lalu deploy ulang (lokal: restart `npm run dev`) — password disamakan dengan env & kunci dibuka. Bila password sudah pernah diganti di aplikasi, env tidak berlaku lagi: minta Super Admin lain reset, atau hapus barisnya di tabel `pengguna` lalu deploy ulang. |
 | Banner kuning **"Mode lokal"** | API tidak terjangkau atau DB belum diset. Cek `/api/data/meta` (langkah 3). |
 | **"Gagal menyimpan, perubahan dibatalkan"** | Baris itu sudah diubah/dihapus admin lain. List dimuat ulang otomatis; ulangi edit. |
 | **"Body bukan JSON yang valid"** saat upload | Sudah diperbaiki di v11 (body gzip kini dikirim sebagai biner, dan bila ditolak otomatis diulang tanpa gzip). Pastikan versi terbaru sudah di-deploy. |
@@ -117,9 +134,9 @@ SELECT tipe, jumlah, version, updated_at FROM dataset ORDER BY tipe;
 
 ## Dev lokal
 
-Isi `DATABASE_URL` di file `.env` (lihat `.env.example`), lalu:
+Isi `DATABASE_URL` (dan `SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD` untuk akun pertama) di file `.env` (lihat `.env.example`), lalu:
 ```bash
 npm run dev        # http://localhost:5173 — API /api/data ikut jalan & tersambung ke Neon
 ```
 API dijalankan sebagai middleware Vite (handler yang sama dengan Netlify Function), jadi **tidak perlu netlify CLI**.
-`vite preview` juga sama. Tanpa DB: `STORE=memory npm run dev` (data di memori).
+`vite preview` juga sama. Tanpa DB: `STORE=memory SUPERADMIN_EMAIL=a@b.c SUPERADMIN_PASSWORD=rahasia-123 npm run dev` (data & akun di memori, hilang saat server restart).

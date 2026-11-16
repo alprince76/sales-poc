@@ -59,7 +59,7 @@ export function MslPage() {
 
   return (
     <AdminPage
-      title="MSL Compliance"
+      title="SKU Listed Compliance"
       description="Modern Trade: SKU listed (Must Stock List) yang aktif dibeli dalam 30 hari terakhir."
       actions={
         <>
@@ -72,8 +72,8 @@ export function MslPage() {
     >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryCard label="Outlet MT" value={rows.length} />
-        <SummaryCard label="MSL aktif" value={`${pct}%`} accent={pct >= 80 ? 'green' : 'red'} hint={`${tot.listed - tot.warning}/${tot.listed} SKU listed`} />
-        <SummaryCard label="SKU untransacted" value={tot.warning} accent={tot.warning ? 'red' : undefined} hint="> 30 hari / belum pernah" />
+        <SummaryCard label="SKU Listed aktif" value={`${pct}%`} accent={pct >= 80 ? 'green' : 'red'} hint={`${tot.listed - tot.warning}/${tot.listed} SKU listed`} />
+        <SummaryCard label="SKU Belum Transaksi" value={tot.warning} accent={tot.warning ? 'red' : undefined} hint="> 30 hari / belum pernah" />
         <SummaryCard label="Belum pernah order" value={tot.belum} />
       </div>
 
@@ -98,14 +98,14 @@ export function MslPage() {
             </Select>
           </div>
           <Table
-            empty={!rows.length && <div className="p-4"><EmptyState title="Belum ada outlet MT">Upload Master Outlet dengan kolom channel = MT dan data MSL.</EmptyState></div>}
+            empty={!rows.length && <div className="p-4"><EmptyState title="Belum ada outlet MT">Upload Master Outlet dengan kolom channel = MT dan Data SKU Listed.</EmptyState></div>}
             head={
               <tr>
                 <th>Toko</th>
                 <th>SR</th>
                 <th className="text-right">Listed</th>
-                <th className="text-right">Untransacted</th>
-                <th className="min-w-[160px]">MSL aktif</th>
+                <th className="text-right">Belum Transaksi</th>
+                <th className="min-w-[160px]">SKU Listed aktif</th>
               </tr>
             }
           >

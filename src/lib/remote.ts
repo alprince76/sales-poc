@@ -17,6 +17,12 @@ export class RemoteError extends Error {
   }
 }
 
+/** Event global: API mana pun membalas 401 → sesi login habis (AuthProvider mengarahkan ke /login). */
+export const EVENT_401 = 'sv:401';
+export function laporkan401(status: number) {
+  if (status === 401 && typeof window !== 'undefined') window.dispatchEvent(new Event(EVENT_401));
+}
+
 const BASE = ((import.meta.env?.VITE_API_BASE as string | undefined) ?? '/api/data').replace(/\/+$/, '');
 
 async function bacaJson<T>(res: Response): Promise<T> {
@@ -30,7 +36,10 @@ async function bacaJson<T>(res: Response): Promise<T> {
   } catch {
     throw new RemoteError('Respons server tidak terbaca', res.ok ? 0 : res.status);
   }
-  if (!res.ok || body.ok === false) throw new RemoteError(body.error ?? `HTTP ${res.status}`, res.status);
+  if (!res.ok || body.ok === false) {
+    laporkan401(res.status);
+    throw new RemoteError(body.error ?? `HTTP ${res.status}`, res.status);
+  }
   return (body.data ?? body) as T;
 }
 
