@@ -3,6 +3,7 @@ export const DIVISI: Record<string, string> = {
   DNE: 'Danone',
   CBN: 'Combine',
   MRS: 'Mars',
+  NPP: 'NPP',
 };
 
 export function namaDivisi(kode: string | undefined | null): string {

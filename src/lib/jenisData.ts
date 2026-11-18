@@ -21,7 +21,7 @@ export const JENIS_DATA: JenisData[] = [
   { id: 'store-mt', tipe: 'master', channel: 'MT', nama: 'Data Store MT', menu: 'Store MT', desc: 'Outlet MT: salesman, alamat, cust group. Toko GT tidak tersentuh.' },
   { id: 'pjp-gt', tipe: 'pjp', channel: 'GT', nama: 'Data PJP Sales GT', menu: 'PJP Sales GT', desc: 'Jadwal kunjungan ke toko GT per tanggal. PJP MT tidak tersentuh.' },
   { id: 'pjp-mt', tipe: 'pjp', channel: 'MT', nama: 'Data PJP Sales MT', menu: 'PJP Sales MT', desc: 'Jadwal kunjungan ke outlet MT per tanggal. PJP GT tidak tersentuh.' },
-  { id: 'tagihan', tipe: 'rovi', nama: 'Data Tagihan (DI AWAL / ROVI)', menu: 'Tagihan (ROVI)', desc: 'AR awal: faktur, divisi (DNE/CBN/MRS), sisa tagihan per toko' },
+  { id: 'tagihan', tipe: 'rovi', nama: 'Data Tagihan (DI AWAL / ROVI)', menu: 'Tagihan (ROVI)', desc: 'AR awal: faktur, divisi (DNE/CBN/MRS/NPP), sisa tagihan per toko' },
   { id: 'sku', tipe: 'produk', nama: 'Data SKU', menu: 'SKU', desc: 'Kode SKU, nama (new material), principal, sub brand, harga dasar, status aktif' },
   { id: 'moq-gt', tipe: 'rules', nama: 'Data MOQ GT', menu: 'MOQ GT', desc: 'Satuan, MOQ per item (flag), isi per karton (CAR) — khusus GT' },
   { id: 'sku-listed-mt', tipe: 'msl', nama: 'Data SKU Listed per Store MT', menu: 'SKU Listed MT', desc: 'SKU yang wajib ada di outlet MT (status_listed YES/NO)' },

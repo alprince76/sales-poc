@@ -214,6 +214,21 @@ describe('RBAC & lingkup', () => {
     expect(peran.find((p) => p.id === 'super_admin')!.izin).toEqual(izinPenuh());
   });
 
+  it('reset PIN massal: hanya sales yang belum ganti PIN, PIN lama tidak berlaku, PIN baru bisa dipakai', async () => {
+    const { admin, perangkat } = await siap();
+    const m = await admin('/api/pengguna/massal', 'POST', { salesmen: [{ kode: '000033', nama: 'Yudha' }, { kode: '000024', nama: 'Arli' }] });
+    // Arli sudah login & ganti PIN → tidak ikut direset.
+    const arli = perangkat();
+    await arli('/api/auth/login', 'POST', { kode_salesman: '000024', pin: m.body.data[1].pin });
+    await arli('/api/auth/ganti-sandi', 'POST', { lama: m.body.data[1].pin, baru: '482915' });
+    const r = await admin('/api/pengguna/reset-massal', 'POST', {});
+    expect(r.body.data.map((x: { kode_salesman: string }) => x.kode_salesman)).toEqual(['000033']);
+    const hp = perangkat();
+    expect((await hp('/api/auth/login', 'POST', { kode_salesman: '000033', pin: m.body.data[0].pin })).status).toBe(401);
+    expect((await hp('/api/auth/login', 'POST', { kode_salesman: '000033', pin: r.body.data[0].pin })).status).toBe(200);
+    expect((await perangkat()('/api/auth/login', 'POST', { kode_salesman: '000024', pin: '482915' })).status).toBe(200);
+  });
+
   it('audit mencatat login, upload, dan perubahan pengguna', async () => {
     const { admin } = await siap();
     await admin('/api/data/rules', 'PUT', [{ kode_sku: '1', satuan: 'Pcs', moq: 1 }]);

@@ -433,7 +433,7 @@ export function Sheet({ open, onClose, title, children, footer }: { open: boolea
           </IconButton>
         </div>
         <div className="flex-1 overflow-y-auto px-5 pb-4">{children}</div>
-        {footer && <div className="border-t border-slate-100 px-5 py-3 pb-safe">{footer}</div>}
+        {footer && <div className="border-t border-slate-100 px-5 py-3 pb-netlify">{footer}</div>}
       </div>
     </div>,
     document.body,
@@ -456,7 +456,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastCtx.Provider value={show}>
       {children}
       {createPortal(
-        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 sm:bottom-6" aria-live="polite">
+        <div className="pointer-events-none fixed inset-x-0 bottom-[calc(9rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 sm:bottom-6" aria-live="polite">
           {items.map((t) => (
             <div
               key={t.id}

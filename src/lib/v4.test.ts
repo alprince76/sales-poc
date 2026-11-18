@@ -8,6 +8,7 @@ describe('Divisi faktur', () => {
     expect(namaDivisi('dne')).toBe('Danone');
     expect(namaDivisi('CBN')).toBe('Combine');
     expect(namaDivisi('MRS')).toBe('Mars');
+    expect(namaDivisi('NPP')).toBe('NPP');
     expect(namaDivisi('XYZ')).toBe('XYZ');
     expect(tanggalDMY('2026-11-09')).toBe('09/11/2026');
   });

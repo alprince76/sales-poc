@@ -38,7 +38,8 @@ export function PenggunaPage() {
   const [err, setErr] = useState<string | null>(null);
   const [jalan, setJalan] = useState(false);
   const [rahasia, setRahasia] = useState<{ judul: string; nama: string; login: string; sandi: string; pin: boolean } | null>(null);
-  const [massal, setMassal] = useState<HasilMassal | null>(null);
+  const [massal, setMassal] = useState<{ judul: string; data: HasilMassal } | null>(null);
+  const [prosesMassal, setProsesMassal] = useState(false);
 
   const muat = useCallback(async () => {
     const [u, p] = await Promise.all([api<PenggunaSesi[]>('/api/pengguna'), api<PeranDef[]>('/api/peran')]);
@@ -130,13 +131,34 @@ export function PenggunaPage() {
   };
 
   const buatMassal = async () => {
+    if (prosesMassal) return;
     if (!window.confirm(`Buat akun untuk ${tanpaAkun.length} salesman yang belum punya akun? PIN awal dibuat acak dan hanya ditampilkan sekali.`)) return;
+    setProsesMassal(true);
     try {
       const r = await api<HasilMassal>('/api/pengguna/massal', 'POST', { salesmen: tanpaAkun });
-      setMassal(r);
+      if (r.length) setMassal({ judul: `${r.length} akun sales dibuat`, data: r });
+      else toast('Semua salesman sudah punya akun. Pakai "Reset PIN" bila PIN awal belum dibagikan.', 'info');
       await muat();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Gagal membuat akun', 'error');
+    } finally {
+      setProsesMassal(false);
+    }
+  };
+
+  const belumLogin = (daftar ?? []).filter((u) => u.kode_salesman && u.wajib_ganti && u.aktif);
+  const resetMassal = async () => {
+    if (prosesMassal) return;
+    if (!window.confirm(`Buat PIN baru untuk ${belumLogin.length} salesman yang belum pernah ganti PIN? PIN lama langsung tidak berlaku. PIN baru hanya ditampilkan sekali.`)) return;
+    setProsesMassal(true);
+    try {
+      const r = await api<HasilMassal>('/api/pengguna/reset-massal', 'POST', { ids: belumLogin.map((u) => u.id) });
+      setMassal({ judul: `PIN baru untuk ${r.length} salesman`, data: r });
+      await muat();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Gagal reset PIN', 'error');
+    } finally {
+      setProsesMassal(false);
     }
   };
 
@@ -145,7 +167,7 @@ export function PenggunaPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(
       wb,
-      XLSX.utils.json_to_sheet(massal.map((m) => ({ 'Kode SR': m.kode_salesman, Nama: m.nama, Peran: m.peran, 'PIN awal': m.pin }))),
+      XLSX.utils.json_to_sheet(massal.data.map((m) => ({ 'Kode SR': m.kode_salesman, Nama: m.nama, Peran: m.peran, 'PIN awal': m.pin }))),
       'Akun Sales',
     );
     XLSX.writeFile(wb, `Akun_Sales_${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -161,8 +183,13 @@ export function PenggunaPage() {
         izin.tambah ? (
           <>
             {tanpaAkun.length > 0 && (
-              <Button variant="secondary" onClick={() => void buatMassal()}>
-                <Users size={16} /> Buat akun {tanpaAkun.length} salesman
+              <Button variant="secondary" onClick={() => void buatMassal()} disabled={prosesMassal}>
+                <Users size={16} /> {prosesMassal ? 'Memproses…' : `Buat akun ${tanpaAkun.length} salesman`}
+              </Button>
+            )}
+            {izin.ubah && belumLogin.length > 0 && (
+              <Button variant="secondary" onClick={() => void resetMassal()} disabled={prosesMassal}>
+                <KeyRound size={16} /> Reset PIN {belumLogin.length} sales belum login
               </Button>
             )}
             <Button onClick={() => buka(null)}>
@@ -292,9 +319,9 @@ export function PenggunaPage() {
       <Sheet
         open={!!massal}
         onClose={() => setMassal(null)}
-        title={`${massal?.length ?? 0} akun sales dibuat`}
+        title={massal?.judul ?? ''}
         footer={
-          <Button block onClick={unduhMassal} disabled={!massal?.length}>
+          <Button block onClick={unduhMassal} disabled={!massal?.data.length}>
             <Download size={16} /> Unduh daftar PIN (Excel)
           </Button>
         }
@@ -315,7 +342,7 @@ export function PenggunaPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {massal.map((m) => (
+                  {massal.data.map((m) => (
                     <tr key={m.kode_salesman}>
                       <td className="px-3 py-1.5 font-mono">{m.kode_salesman}</td>
                       <td className="px-3 py-1.5">{m.nama}</td>
@@ -508,6 +535,7 @@ const LABEL_AUDIT: Record<string, string> = {
   reset: 'Reset aktivitas',
   'reset-sandi': 'Reset PIN/password',
   'tambah-massal': 'Buat akun massal',
+  'reset-sandi-massal': 'Reset PIN massal',
 };
 
 function LogAktivitas() {

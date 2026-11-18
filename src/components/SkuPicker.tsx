@@ -1,5 +1,5 @@
 import { Check, Plus, Search, X } from 'lucide-react';
-import { useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { formatRupiah } from '../lib/format';
 import type { ProdukLengkap } from '../lib/order';
 import { cariSkuLengkap, sorotNama } from '../lib/sku-search';
@@ -15,6 +15,14 @@ export function SkuPicker({
   terpilih,
   placeholder = 'Cari kode atau nama SKU',
   label = 'Cari SKU',
+  /**
+   * Slot opsional di kanan setiap baris saran.
+   * Bila diberikan, menggantikan ikon + / ✓ default.
+   * Pakai di PO (GT & MT) untuk stepper qty inline.
+   * onMouseDown harus `e.preventDefault()` di dalam elemen interaktif
+   * agar input tidak kehilangan fokus dan dropdown tidak menutup.
+   */
+  renderExtra,
 }: {
   produk: readonly ProdukLengkap[];
   onPilih: (p: ProdukLengkap) => void;
@@ -22,6 +30,7 @@ export function SkuPicker({
   terpilih?: ReadonlySet<string>;
   placeholder?: string;
   label?: string;
+  renderExtra?: (p: ProdukLengkap, sudah: boolean) => ReactNode;
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -92,7 +101,7 @@ export function SkuPicker({
             <li className="px-4 py-3 text-sm text-slate-500">SKU tidak ditemukan. Coba kata lain, mis. sebagian nama atau kode SKU.</li>
           ) : (
             hasil.map((p, i) => {
-              const sudah = terpilih?.has(p.kode_sku);
+              const sudah = terpilih?.has(p.kode_sku) ?? false;
               return (
                 <li
                   key={p.kode_sku}
@@ -100,9 +109,13 @@ export function SkuPicker({
                   role="option"
                   aria-selected={i === aktif}
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pilih(p)}
+                  onClick={() => !renderExtra && pilih(p)}
                   onMouseEnter={() => setAktif(i)}
-                  className={cn('flex cursor-pointer items-center gap-3 px-3 py-2.5', i === aktif && 'bg-brand-50')}
+                  className={cn(
+                    'flex cursor-pointer items-center gap-3 px-3 py-2.5',
+                    i === aktif && 'bg-brand-50',
+                    renderExtra && 'cursor-default',
+                  )}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="line-clamp-2 text-sm text-slate-900">
@@ -122,7 +135,9 @@ export function SkuPicker({
                       {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                     </div>
                   </div>
-                  {sudah ? (
+                  {renderExtra ? (
+                    renderExtra(p, sudah)
+                  ) : sudah ? (
                     <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700">
                       <Check size={14} /> Ditambah
                     </span>

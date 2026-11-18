@@ -493,7 +493,7 @@ const FORMAT_KOLOM: Record<JenisKolom, string> = {
 const FORMAT_KHUSUS: Record<string, string> = {
   channel: 'GT / MT',
   tipe_bayar: 'TUNAI / KREDIT',
-  divisi: 'Teks (principal / divisi, mis. DNE, CBN, MRS)',
+  divisi: 'Teks (principal / divisi, mis. DNE, CBN, MRS, NPP)',
   moq: 'Angka bulat ≥ 1',
   rpp13: 'Angka bulat (boleh negatif)',
 };

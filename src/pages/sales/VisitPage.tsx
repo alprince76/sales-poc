@@ -25,7 +25,7 @@ const STEPS: Step[] = [...LANGKAH, 'selesai'];
 /** Bar aksi menempel di bawah layar. */
 export function ActionBar({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-safe">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-netlify">
       <div className="mx-auto flex max-w-md items-center gap-2 px-4 py-3">{children}</div>
     </div>
   );
@@ -59,7 +59,7 @@ export function VisitPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-slate-50 pb-28">
+    <div className="min-h-dvh bg-slate-50 pb-36">
       <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/95 backdrop-blur">
         <div className="mx-auto max-w-md px-4 pb-3 pt-2">
           <div className="flex items-center gap-2">

@@ -64,7 +64,7 @@ export function BelumTerkirim({ inline = false }: { inline?: boolean }) {
       </button>
     );
   return (
-    <div role="status" className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 px-3 pb-2">
+    <div role="status" className="fixed inset-x-0 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] z-30 px-3 pb-2">
       <button
         type="button"
         onClick={() => void sinkronAktivitas()}
@@ -82,10 +82,10 @@ export function BelumTerkirim({ inline = false }: { inline?: boolean }) {
 
 export function SalesLayout({ nav = NAV }: { nav?: NavItem[] }) {
   return (
-    <div className="min-h-dvh bg-slate-50 pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+    <div className="min-h-dvh bg-slate-50 pb-[calc(8rem+env(safe-area-inset-bottom))]">
       <Outlet />
       <BelumTerkirim />
-      <nav aria-label="Menu utama" className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-safe">
+      <nav aria-label="Menu utama" className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-bar backdrop-blur pb-netlify">
         <ul className="mx-auto grid max-w-md" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
           {nav.map(({ to, label, icon: Icon, end }) => (
             <li key={to}>

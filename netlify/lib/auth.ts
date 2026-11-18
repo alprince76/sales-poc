@@ -589,7 +589,7 @@ export async function handleAuth(req: Request, store: AuthStore | null): Promise
 
   // ── Pengguna ──
   if (area === 'pengguna') {
-    const id = seg[2] && seg[2] !== 'massal' ? decodeURIComponent(seg[2]) : null;
+    const id = seg[2] && seg[2] !== 'massal' && seg[2] !== 'reset-massal' ? decodeURIComponent(seg[2]) : null;
     if (m === 'GET' && !id) {
       const t = tolak(sesi, 'pengguna.user', 'lihat');
       return t ?? json(200, { ok: true, data: await store.daftarPengguna() });
@@ -603,6 +603,28 @@ export async function handleAuth(req: Request, store: AuthStore | null): Promise
       return null;
     };
     const lingkupBersih = (l: unknown) => (Array.isArray(l) ? [...new Set(l.map((x) => String(x).trim().toUpperCase()).filter(Boolean))] : []);
+
+    // Reset PIN banyak akun sales sekaligus (default: semua sales yang belum pernah ganti PIN).
+    if (m === 'POST' && seg[2] === 'reset-massal') {
+      const t = tolak(sesi, 'pengguna.user', 'ubah');
+      if (t) return t;
+      const b = await body<{ ids?: string[] }>(req);
+      const semua = await store.daftarPengguna();
+      const target = semua.filter((u) => u.kode_salesman && (b?.ids?.length ? b.ids.includes(u.id) : u.wajib_ganti));
+      const hasil: { kode_salesman: string; nama: string; peran: string; pin: string }[] = [];
+      const peranNama = new Map((await store.daftarPeran()).map((p) => [p.id, p.nama]));
+      for (const u of target) {
+        const ada = await store.ambilPengguna(u.id);
+        if (!ada) continue;
+        const pin = pinAcak();
+        await store.simpanPengguna({ ...ada, hash: await hashSandi(pin), wajib_ganti: true, sandi_env: false });
+        await store.hapusSesiPengguna(u.id);
+        await store.resetGagal(`k:${u.kode_salesman}`);
+        hasil.push({ kode_salesman: u.kode_salesman!, nama: u.nama, peran: peranNama.get(u.peran_id) ?? u.peran_id, pin });
+      }
+      await sesi!.catat('reset-sandi-massal', 'pengguna', { jumlah: hasil.length });
+      return json(200, { ok: true, data: hasil });
+    }
 
     if (m === 'POST' && seg[2] === 'massal') {
       const t = tolak(sesi, 'pengguna.user', 'tambah');

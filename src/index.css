@@ -40,6 +40,14 @@
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom);
   }
+  /**
+   * Naikkan bar bawah tetap melewati badge "Powered by Netlify" (~3.5rem)
+   * yang menempel di pojok kanan bawah.
+   * Pakai di nav, ActionBar, dan footer Sheet supaya tombol tidak tertutup.
+   */
+  .pb-netlify {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom));
+  }
   .tabular {
     font-variant-numeric: tabular-nums;
   }

@@ -1,4 +1,4 @@
-import { CalendarX2, CheckCircle2, ChevronRight, Store } from 'lucide-react';
+import { CalendarX2, CheckCircle2, ChevronRight, Search, Store, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { bandingPrioritas, hitungKunjungan, type BarisKunjungan } from '../lib/billing';
 import type { ISODate } from '../lib/dates';
@@ -96,19 +96,34 @@ export function KunjunganPanel({
   const { aktivitas } = useData();
   // All = semesta PJP (urut nama), Route = urutan kunjungan, Tagih = hanya toko yang perlu ditagih (urut prioritas).
   const [sub, setSub] = useState<'all' | 'route' | 'tagih'>('all');
+  const [query, setQuery] = useState('');
   const [dipilih, setDipilih] = useState<string | null>(null);
   const hasil = useKunjungan(kodeSalesman, D, 'rute');
 
   const kodeList = hasil.baris.map((b) => b.kode_toko);
   const prog = progres(aktivitas.kunjungan, kodeSalesman, D, kodeList);
   const kj = (kode: string) => cariKunjungan(aktivitas.kunjungan, kodeSalesman, kode, D);
-  const tampil =
+
+  const subFilter =
     sub === 'route'
       ? hasil.baris
       : sub === 'tagih'
         ? [...hasil.baris].filter((b) => b.perluDitagih).sort(bandingPrioritas)
         : [...hasil.baris].sort((a, b) => a.nama_toko.localeCompare(b.nama_toko) || a.kode_toko.localeCompare(b.kode_toko));
-  const tagih = () => setSub((s) => (s === 'tagih' ? 'all' : 'tagih'));
+
+  const q = query.trim().toLowerCase();
+  const tampil = q
+    ? subFilter.filter((b) => b.nama_toko.toLowerCase().includes(q) || b.kode_toko.toLowerCase().includes(q))
+    : subFilter;
+
+  const changeSub = (s: 'all' | 'route' | 'tagih') => {
+    setSub(s);
+    setQuery('');
+  };
+  const tagih = () => {
+    setSub((s) => (s === 'tagih' ? 'all' : 'tagih'));
+    setQuery('');
+  };
 
   if (!onPilih && dipilih) return <DetailTokoView kodeToko={dipilih} D={D} onBack={() => setDipilih(null)} />;
 
@@ -152,7 +167,7 @@ export function KunjunganPanel({
           <Segmented
             label="Tampilan On Route"
             value={sub}
-            onChange={setSub}
+            onChange={changeSub}
             options={[
               { value: 'all', label: `All (${hasil.jumlahKunjungan})` },
               { value: 'route', label: 'Route' },
@@ -164,8 +179,27 @@ export function KunjunganPanel({
               {hasil.jumlahPerluDitagih} toko · total {formatRupiah(hasil.totalTagihan)} · urut overdue terlama. Tap toko untuk langsung ke Collection.
             </p>
           )}
+
+          {/* Input cari toko: berlaku setelah filter All / Route / Tagih */}
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="search"
+              aria-label="Cari kode atau nama toko"
+              placeholder="Cari kode / nama toko"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-9 text-slate-900 shadow-card placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query && (
+              <button type="button" aria-label="Hapus pencarian" onClick={() => setQuery('')} className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
           {tampil.length === 0 ? (
-            <EmptyState icon={<Store size={20} />} title="Tidak ada toko" />
+            <EmptyState icon={<Store size={20} />} title={q ? `Tidak ada toko yang cocok dengan "${query.trim()}"` : 'Tidak ada toko'} />
           ) : (
             <ul className="space-y-2">
               {tampil.map((b) => (
