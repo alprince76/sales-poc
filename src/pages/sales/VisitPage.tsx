@@ -4,7 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HarusDitagih, InfoOutlet, KelompokFaktur, useDetailToko } from '../../components/DetailTokoView';
 import { PenagihanSheet } from '../../components/Penagihan';
 import { Badge, Button, Card, cn, EmptyState, Input, NumberStepper, SectionTitle, Segmented, Sheet, StatusBayarBadge, useToast } from '../../components/ui';
-import { QtyUnit, UnitToggle } from '../../components/QtyUnit';
+import { QtyInline, QtyUnit, UnitToggle } from '../../components/QtyUnit';
 import { SkuPicker } from '../../components/SkuPicker';
 import { normKode, type FakturDinilai } from '../../lib/billing';
 import { ringkasPenagihan } from '../../lib/collection';
@@ -642,7 +642,21 @@ function POStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) 
         </Card>
       )}
 
-      <SkuPicker produk={aktifProduk} terpilih={diKeranjang} onPilih={(p) => tambah(p)} label="Cari SKU untuk PO" />
+      <SkuPicker
+        produk={aktifProduk}
+        terpilih={diKeranjang}
+        onPilih={(p) => tambah(p)}
+        label="Cari SKU untuk PO"
+        renderExtra={(p) => (
+          <QtyInline
+            label={p.nama_sku}
+            value={keranjang[p.kode_sku] ?? 0}
+            isi={p.isi_karton}
+            satuan={p.satuan}
+            onChange={(n) => (n <= 0 ? hapus(p.kode_sku) : keranjang[p.kode_sku] ? setQty(p.kode_sku, n) : tambah(p, n))}
+          />
+        )}
+      />
 
       {items.length > 0 && (
         <section>

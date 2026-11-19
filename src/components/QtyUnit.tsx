@@ -70,3 +70,54 @@ export function QtyUnit({
     </div>
   );
 }
+
+/**
+ * Qty ringkas untuk baris hasil pencarian SKU: belum dipesan → tombol "+", sudah → − qty +.
+ * Nilai dalam satuan dasar (Pcs). Semua tombol mencegah blur supaya dropdown pencarian tetap terbuka.
+ */
+export function QtyInline({ value, onChange, isi = 1, label }: { value: number; onChange: (n: number) => void; isi?: number; satuan?: string; label: string }) {
+  const tahan = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const tombol = 'flex h-8 w-8 items-center justify-center rounded-lg text-base font-bold leading-none';
+  if (value <= 0)
+    return (
+      <button
+        type="button"
+        aria-label={`Tambah ${label}`}
+        onMouseDown={tahan}
+        onClick={(e) => {
+          e.stopPropagation();
+          onChange(1);
+        }}
+        className={cn(tombol, 'shrink-0 bg-brand-50 text-brand-700 hover:bg-brand-100')}
+      >
+        +
+      </button>
+    );
+  return (
+    <div className="flex shrink-0 flex-col items-end" onMouseDown={tahan} onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center rounded-lg border border-brand-200 bg-white">
+        <button type="button" aria-label={`Kurangi ${label}`} onClick={() => onChange(value - 1)} className={cn(tombol, 'text-slate-600 hover:bg-slate-100')}>
+          −
+        </button>
+        <input
+          aria-label={`Qty ${label}`}
+          inputMode="numeric"
+          value={value}
+          onMouseDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const n = Number(e.target.value.replace(/\D/g, ''));
+            onChange(Number.isFinite(n) ? n : 0);
+          }}
+          className="h-8 w-10 border-x border-slate-100 text-center text-sm font-semibold tabular text-slate-900 focus:outline-none"
+        />
+        <button type="button" aria-label={`Tambah ${label}`} onClick={() => onChange(value + 1)} className={cn(tombol, 'text-brand-700 hover:bg-brand-50')}>
+          +
+        </button>
+      </div>
+      {isi > 1 && value >= isi && value % isi === 0 && <span className="mt-0.5 text-[10px] tabular text-slate-500">= {value / isi} CAR</span>}
+    </div>
+  );
+}

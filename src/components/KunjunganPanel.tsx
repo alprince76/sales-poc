@@ -1,4 +1,6 @@
-import { CalendarX2, CheckCircle2, ChevronRight, Search, Store, X } from 'lucide-react';
+import { CalendarX2, CheckCircle2, ChevronRight, FileUp, Search, Store, X } from 'lucide-react';
+import { useIzin } from '../auth';
+import { UploadPoSheet } from './UploadPoSheet';
 import { useMemo, useState } from 'react';
 import { bandingPrioritas, hitungKunjungan, type BarisKunjungan } from '../lib/billing';
 import type { ISODate } from '../lib/dates';
@@ -94,6 +96,8 @@ export function KunjunganPanel({
   onPilih?: (kode: string, step?: string) => void;
 }) {
   const { aktivitas } = useData();
+  const bolehPO = useIzin('app.gt').tambah;
+  const [uploadPo, setUploadPo] = useState(false);
   // All = semesta PJP (urut nama), Route = urutan kunjungan, Tagih = hanya toko yang perlu ditagih (urut prioritas).
   const [sub, setSub] = useState<'all' | 'route' | 'tagih'>('all');
   const [query, setQuery] = useState('');
@@ -164,16 +168,30 @@ export function KunjunganPanel({
             <ProgressBar value={prog.selesai} max={prog.total} tone="green" />
           </div>
 
-          <Segmented
-            label="Tampilan On Route"
-            value={sub}
-            onChange={changeSub}
-            options={[
-              { value: 'all', label: `All (${hasil.jumlahKunjungan})` },
-              { value: 'route', label: 'Route' },
-              { value: 'tagih', label: `Perlu ditagih (${hasil.jumlahPerluDitagih})` },
-            ]}
-          />
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 overflow-x-auto no-scrollbar [&_button]:whitespace-nowrap">
+              <Segmented
+                label="Tampilan On Route"
+                value={sub}
+                onChange={changeSub}
+                options={[
+                  { value: 'all', label: `All (${hasil.jumlahKunjungan})` },
+                  { value: 'route', label: 'Route' },
+                  { value: 'tagih', label: `Ditagih (${hasil.jumlahPerluDitagih})` },
+                ]}
+              />
+            </div>
+            {onPilih && bolehPO && (
+              <button
+                type="button"
+                onClick={() => setUploadPo(true)}
+                className="inline-flex h-10 shrink-0 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-brand-700 shadow-card hover:bg-brand-50"
+              >
+                <FileUp size={15} /> Upload PO
+              </button>
+            )}
+          </div>
+          {onPilih && bolehPO && <UploadPoSheet open={uploadPo} onClose={() => setUploadPo(false)} channel="GT" />}
           {sub === 'tagih' && (
             <p className="px-1 text-xs text-slate-600">
               {hasil.jumlahPerluDitagih} toko · total {formatRupiah(hasil.totalTagihan)} · urut overdue terlama. Tap toko untuk langsung ke Collection.

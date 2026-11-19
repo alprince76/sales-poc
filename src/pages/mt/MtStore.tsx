@@ -1,4 +1,6 @@
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, PackagePlus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, CheckCircle2, FileUp, PackagePlus, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { useIzin } from '../../auth';
+import { UploadPoSheet } from '../../components/UploadPoSheet';
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { InfoOutletMT } from '../../components/DetailTokoView';
@@ -9,7 +11,7 @@ import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { compliance, labelWarning, ringkasPrincipal, teksTerakhirOrder, type SkuMSL } from '../../lib/msl';
 import { formatQty, historiToko, suggestedQty, validasiPO, type ProdukLengkap } from '../../lib/order';
-import { QtyUnit } from '../../components/QtyUnit';
+import { QtyInline, QtyUnit } from '../../components/QtyUnit';
 import { BelumTerkirim } from '../sales/SalesLayout';
 
 /** MT tidak memakai MOQ: saran qty dihitung tanpa pembulatan MOQ. */
@@ -69,7 +71,7 @@ export function MtTokoPage() {
     );
 
   return (
-    <div className="min-h-dvh bg-slate-50 pb-28">
+    <div className="min-h-dvh bg-slate-50 pb-36">
       <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/95 backdrop-blur">
         <div className="mx-auto max-w-md px-4 pb-3 pt-2">
           <div className="flex items-center gap-2">
@@ -145,6 +147,8 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
   const { produkMT: produk, data, keranjang, setQtyKeranjang } = useData();
   const v = usePOToko(kodeToko);
   const k = keranjang[kodeToko] ?? {};
+  const bolehPO = useIzin('app.mt').tambah;
+  const [uploadPo, setUploadPo] = useState(false);
   const aktifProduk = useMemo(() => produk.filter((p) => p.status_aktif !== false), [produk]);
   const byKode = useMemo(() => new Map(produk.map((p) => [p.kode_sku, p])), [produk]);
   const histMap = useMemo(() => new Map(historiToko(data.histori, kodeToko, D).map((h) => [h.kode_sku, h])), [data.histori, kodeToko, D]);
@@ -160,7 +164,27 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
   return (
     <>
       <InfoOutletMT kodeToko={kodeToko} />
-      <SkuPicker produk={aktifProduk} terpilih={new Set(Object.keys(k))} onPilih={tambah} label="Cari SKU untuk PO" />
+      {bolehPO && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setUploadPo(true)}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-violet-700 shadow-card hover:bg-violet-50"
+          >
+            <FileUp size={16} /> Upload PO (Excel)
+          </button>
+        </div>
+      )}
+      {bolehPO && <UploadPoSheet open={uploadPo} onClose={() => setUploadPo(false)} channel="MT" kodeToko={kodeToko} />}
+      <SkuPicker
+        produk={aktifProduk}
+        terpilih={new Set(Object.keys(k))}
+        onPilih={tambah}
+        label="Cari SKU untuk PO"
+        renderExtra={(p) => (
+          <QtyInline label={p.nama_sku} value={k[p.kode_sku] ?? 0} isi={p.isi_karton} satuan={p.satuan} onChange={(n) => setQtyKeranjang(kodeToko, p.kode_sku, Math.max(0, n))} />
+        )}
+      />
       {items.length === 0 ? (
         <EmptyState icon={<ShoppingCart size={20} />} title="Belum ada item PO">
           Cari SKU berdasarkan kode atau nama. Setelah itu, cek SKU Listed yang belum ditransaksikan di langkah berikutnya.
