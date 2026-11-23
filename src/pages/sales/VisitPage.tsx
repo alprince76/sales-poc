@@ -245,7 +245,27 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
 
       {tab === 'internal' ? (
         <>
-          <SkuPicker produk={kandidat} terpilih={terpilih} onPilih={(p) => tambah(p.kode_sku)} label="Cari SKU untuk cek stok" />
+          <SkuPicker
+            produk={kandidat}
+            terpilih={terpilih}
+            onPilih={(p) => tambah(p.kode_sku)}
+            label="Cari SKU untuk cek stok"
+            renderExtra={(p) => (
+              <QtyInline
+                label={`display ${p.nama_sku}`}
+                value={stok.find((s) => s.kode_sku === p.kode_sku)?.display ?? 0}
+                isi={p.isi_karton}
+                satuan={p.satuan}
+                onChange={(n) =>
+                  setStok((x) =>
+                    x.some((s) => s.kode_sku === p.kode_sku)
+                      ? x.map((s) => (s.kode_sku === p.kode_sku ? { ...s, display: n } : s))
+                      : [{ kode_sku: p.kode_sku, display: n, backroom: 0 }, ...x],
+                  )
+                }
+              />
+            )}
+          />
           {stok.length === 0 ? (
             <EmptyState title="Belum ada SKU">Cari SKU berdasarkan kode atau nama, lalu isi stok display & backroom.</EmptyState>
           ) : (
@@ -430,7 +450,31 @@ function ReturStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void 
         </Card>
       )}
 
-      <SkuPicker produk={produk} onPilih={tambah} terpilih={new Set(baris.map((b) => b.p.kode_sku))} label="Cari SKU retur" placeholder="Cari SKU yang diretur" />
+      <SkuPicker
+        produk={produk}
+        onPilih={tambah}
+        terpilih={new Set(baris.map((b) => b.p.kode_sku))}
+        label="Cari SKU retur"
+        placeholder="Cari SKU yang diretur"
+        renderExtra={(p) => (
+          <QtyInline
+            label={`retur ${p.nama_sku}`}
+            value={baris.find((b) => b.p.kode_sku === p.kode_sku)?.qty ?? 0}
+            isi={p.isi_karton}
+            satuan={p.satuan}
+            onChange={(n) => {
+              setErr(null);
+              setBaris((x) =>
+                n <= 0
+                  ? x.filter((b) => b.p.kode_sku !== p.kode_sku)
+                  : x.some((b) => b.p.kode_sku === p.kode_sku)
+                    ? x.map((b) => (b.p.kode_sku === p.kode_sku ? { ...b, qty: n } : b))
+                    : [{ p, qty: n }, ...x],
+              );
+            }}
+          />
+        )}
+      />
 
       {baris.length > 0 && (
         <ul className="space-y-2">
