@@ -146,3 +146,17 @@ export function namaHari(d: ISODate): string {
   // 1970-01-01 adalah Kamis (index 4).
   return HARI[(((toEpochDay(d) + 4) % 7) + 7) % 7];
 }
+
+/** Awalan bulan "YYYY-MM" dari tanggal ISO. */
+export const bulanDari = (d: ISODate): string => d.slice(0, 7);
+
+/** Geser bulan "YYYY-MM" sebanyak n bulan. */
+export function geserBulan(ym: string, n: number): string {
+  const [y, m] = ym.split('-').map(Number);
+  const t = y * 12 + (m - 1) + n;
+  return `${String(Math.floor(t / 12)).padStart(4, '0')}-${String((t % 12) + 1).padStart(2, '0')}`;
+}
+
+export const NAMA_BULAN_PANJANG = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+export const formatBulan = (ym: string): string => `${NAMA_BULAN_PANJANG[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;

@@ -420,12 +420,12 @@ export function PenagihanPage() {
   const [sales, setSales] = useState('');
   const [status, setStatus] = useState<'' | StatusBayar>('');
   const [tgl, setTgl] = useState('');
-  const [tab, setTab] = useState<'penagihan' | 'retur'>('penagihan');
+  // Retur di-take out (feedback 19): tab disembunyikan, kode dipertahankan agar mudah diaktifkan lagi.
+  const [tab] = useState<'penagihan' | 'retur'>('penagihan');
   const retur = (aktivitas.retur ?? [])
     .filter((x) => (!sales || x.kode_salesman === sales) && (!tgl || x.tanggal === tgl))
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const totalRetur = retur.reduce((t, x) => t + x.nominal, 0);
   const nama = namaTokoFn(masterIdx);
   const namaSR = (k: string) => salesmen.find((s) => s.kode === k)?.nama ?? k;
 
@@ -480,32 +480,17 @@ export function PenagihanPage() {
   return (
     <AdminPage
       title="Collection"
-      description="Log update status penagihan (collection) dan retur yang memotong tagihan, dari salesman."
+      description="Log update status penagihan (collection) dari salesman."
       actions={<ExportMenu onExport={exportCSV} disabled={tab === 'retur' ? !retur.length : !rows.length} />}
     >
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <SummaryCard label="Terkumpul" value={formatRupiah(r.terkumpul)} accent="green" />
         <SummaryCard label="Paid" value={r.jumlahPaid} />
         <SummaryCard label="Partially Paid" value={r.jumlahPartial} />
         <SummaryCard label="Janji Bayar" value={r.jumlahJanji} />
-        <SummaryCard label="Bad Debt" value={r.jumlahBadDebt} accent={r.jumlahBadDebt ? 'red' : undefined} />
-        <SummaryCard label="Retur" value={formatRupiah(totalRetur)} hint={`${retur.length} retur`} onClick={() => setTab('retur')} aktif={tab === 'retur'} />
+        <SummaryCard label="Tidak Bayar" value={r.jumlahBadDebt} accent={r.jumlahBadDebt ? 'red' : undefined} />
       </div>
-      <div className="mt-5 flex gap-1 rounded-xl bg-slate-100 p-1 text-sm font-medium sm:w-fit" role="tablist">
-        {(['penagihan', 'retur'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={cn('rounded-lg px-4 py-1.5', tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900')}
-          >
-            {t === 'penagihan' ? `Penagihan (${rows.length})` : `Retur (${retur.length})`}
-          </button>
-        ))}
-      </div>
-      <Card className="mt-3 overflow-hidden">
+      <Card className="mt-5 overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 p-3">
           <SalesSelect value={sales} onChange={setSales} />
           {tab === 'penagihan' && (

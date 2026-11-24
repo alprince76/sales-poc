@@ -4,7 +4,7 @@
 import { addDays, diffDays, type ISODate } from './dates';
 import { normKode } from './billing';
 import { formatRupiah } from './format';
-import type { HistoriSales, ItemPO, MasterToko, OrderRule, PriceList, Produk } from './types';
+import type { HistoriSales, ItemPO, MasterToko, OrderRule, PriceList, Produk, PurchaseOrder } from './types';
 
 export interface ProdukLengkap extends Produk {
   satuan: string;
@@ -242,4 +242,39 @@ export function validasiPO(
   const total = totalItems(items);
   const kredit = cekKredit(outlet, outstanding, total, opsi);
   return { items, total, errorItem, catatanItem, kredit, bolehSubmit: items.length > 0 && !Object.keys(errorItem).length && kredit.boleh };
+}
+
+/**
+ * Total Item: tiap baris SKU di PO yang qty-nya memenuhi MOQ dihitung 1 item.
+ * SKU di bawah MOQ tidak dihitung. MT & SKU tanpa MOQ: qty > 0 sudah dihitung.
+ */
+export function itemMemenuhiMoq(item: Pick<ItemPO, 'kode_sku' | 'qty'>, produk: ReadonlyMap<string, Pick<ProdukLengkap, 'moq' | 'punyaMoq'>>, channel: 'GT' | 'MT' = 'GT'): boolean {
+  if (item.qty <= 0) return false;
+  if (channel === 'MT') return true;
+  const p = produk.get(item.kode_sku);
+  if (!p || p.punyaMoq === false) return true;
+  return item.qty >= p.moq;
+}
+
+export interface RingkasanPO {
+  /** EC: toko unik yang submit minimal 1 PO. */
+  ec: number;
+  totalItem: number;
+  /** Total Item ÷ EC (0 bila EC 0). */
+  itemPerEc: number;
+  nilai: number;
+}
+
+export function ringkasPO(po: readonly Pick<PurchaseOrder, 'kode_toko' | 'items' | 'total'>[], produk: ReadonlyMap<string, Pick<ProdukLengkap, 'moq' | 'punyaMoq'>>, channelToko: (kodeToko: string) => 'GT' | 'MT' = () => 'GT'): RingkasanPO {
+  const toko = new Set<string>();
+  let totalItem = 0;
+  let nilai = 0;
+  for (const p of po) {
+    toko.add(normKode(p.kode_toko));
+    nilai += p.total;
+    const ch = channelToko(p.kode_toko);
+    for (const i of p.items) if (itemMemenuhiMoq(i, produk, ch)) totalItem++;
+  }
+  const ec = toko.size;
+  return { ec, totalItem, itemPerEc: ec ? Math.round((totalItem / ec) * 10) / 10 : 0, nilai };
 }

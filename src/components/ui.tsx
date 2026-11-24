@@ -116,7 +116,7 @@ export const TONE_BAYAR: Record<Penagihan['status'], Tone> = { PAID: 'green', PA
 export function labelPenagihan(p: Penagihan): string {
   if (p.status === 'PAID' || p.status === 'PARTIAL') return `${LABEL_STATUS_BAYAR[p.status]} ${formatRupiah(p.nominal)}`;
   if (p.status === 'JANJI_BAYAR') return `Janji bayar ${p.tanggal_janji ? formatTanggal(p.tanggal_janji) : ''}`;
-  return `Bad Debt · ${p.alasan ?? ''}`;
+  return `Tidak Bayar · ${p.alasan ?? ''}`;
 }
 
 export function StatusBayarBadge({ p }: { p: Penagihan }) {

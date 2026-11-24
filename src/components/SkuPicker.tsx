@@ -23,6 +23,7 @@ export function SkuPicker({
    * agar input tidak kehilangan fokus dan dropdown tidak menutup.
    */
   renderExtra,
+  info,
 }: {
   produk: readonly ProdukLengkap[];
   onPilih: (p: ProdukLengkap) => void;
@@ -31,6 +32,8 @@ export function SkuPicker({
   placeholder?: string;
   label?: string;
   renderExtra?: (p: ProdukLengkap, sudah: boolean) => ReactNode;
+  /** Baris info tambahan di bawah kode · harga, mis. "Min. 12 Pcs/item" (MOQ di menu PO). */
+  info?: (p: ProdukLengkap) => ReactNode;
 }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
@@ -134,6 +137,7 @@ export function SkuPicker({
                     <div className="truncate text-xs text-slate-500">
                       {p.kode_sku} · {p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                     </div>
+                    {info?.(p)}
                   </div>
                   {renderExtra ? (
                     renderExtra(p, sudah)

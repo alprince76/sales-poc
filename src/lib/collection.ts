@@ -10,7 +10,7 @@ export const LABEL_STATUS_BAYAR: Record<StatusBayar, string> = {
   PAID: 'Paid',
   PARTIAL: 'Partially Paid',
   JANJI_BAYAR: 'Janji Bayar',
-  BAD_DEBT: 'Bad Debt',
+  BAD_DEBT: 'Tidak Bayar',
 };
 
 export const ALASAN_BAD_DEBT = ['Toko Tutup', 'Pemilik Tidak Ada', 'Uang Belum Siap', 'Lainnya'] as const;
@@ -108,6 +108,19 @@ export function applyPenagihan(rovi: readonly Faktur[], logs: readonly Penagihan
     const b = bayar.get(keyFaktur(f.no_faktur));
     return b ? { ...f, sisa_tagihan: Math.max(0, f.sisa_tagihan - b) } : f;
   });
+}
+
+/**
+ * Validasi submit PO: faktur overdue yang status Collection terakhirnya Partially Paid atau Tidak Bayar
+ * menahan PO. Paid / Janji Bayar / belum ada catatan tidak menahan.
+ * Mengembalikan no_faktur overdue yang menahan.
+ */
+export function fakturOverdueTertahan(overdue: readonly Pick<Faktur, 'no_faktur'>[], logs: readonly Penagihan[]): string[] {
+  const terakhir = penagihanTerakhir(logs);
+  return overdue.filter((f) => {
+    const st = terakhir.get(keyFaktur(f.no_faktur))?.status;
+    return st === 'PARTIAL' || st === 'BAD_DEBT';
+  }).map((f) => f.no_faktur);
 }
 
 /** Catatan penagihan terakhir per no_faktur (untuk label di kartu faktur). */

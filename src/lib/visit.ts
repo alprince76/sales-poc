@@ -3,7 +3,8 @@ import type { ISODate } from './dates';
 import { normKode } from './billing';
 import type { HasilLangkah, LangkahKunjungan, StatusKunjungan } from './types';
 
-export const LANGKAH: LangkahKunjungan[] = ['stok', 'retur', 'collection', 'po'];
+// Langkah Retur di-take out dari alur kunjungan (tipe 'retur' tetap ada agar data lama aman).
+export const LANGKAH: LangkahKunjungan[] = ['stok', 'collection', 'po'];
 export const LABEL_LANGKAH: Record<LangkahKunjungan, string> = { stok: 'Cek Stok', retur: 'Retur', collection: 'Collection', po: 'Purchase Order' };
 
 const cocok = (s: StatusKunjungan, sales: string, toko: string, D: ISODate) =>

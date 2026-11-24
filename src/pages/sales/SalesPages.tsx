@@ -1,4 +1,4 @@
-import { CalendarClock, CheckCircle2, ChevronRight, HandCoins, PackageCheck, ReceiptText, Search, ShieldAlert, Store, UserRound } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, ChevronRight, HandCoins, PackageCheck, ReceiptText, Search, Store, UserRound } from 'lucide-react';
 import { KotakAkunSales } from './SalesLayout';
 import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -9,8 +9,9 @@ import { Badge, Card, EmptyState, Field, Input, SectionTitle, Segmented, Select,
 import { indexFaktur, normKode, ringkasTagihan, type FakturDinilai } from '../../lib/billing';
 import { daftarInkasso, type BarisInkasso } from '../../lib/inkasso';
 import { getPenagihanTerakhir, LABEL_STATUS_BAYAR, ringkasPenagihan } from '../../lib/collection';
-import { formatTanggal } from '../../lib/dates';
+import { bulanDari, formatBulan, formatTanggal, geserBulan } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
+import { ringkasPO } from '../../lib/order';
 import { progres } from '../../lib/visit';
 import { formatJam, formatTimestamp, latestUpdate, useData } from '../../state';
 import { SalesBody, SalesHeader } from './SalesLayout';
@@ -288,25 +289,39 @@ function NonRouteList({ onPilih }: { onPilih: (kode: string) => void }) {
 
 export function AktivitasPage() {
   const { kode, setKode, D, salesmen } = useSalesSession();
-  const { aktivitas, updatedAt, masterIdx } = useData();
+  const { aktivitas, updatedAt, masterIdx, data, produk, channelToko } = useData();
   const hasil = useKunjungan(kode, D);
+  const [mode, setMode] = useState<'hari' | 'bulan'>('hari');
+  const [bulan, setBulan] = useState(() => bulanDari(D));
+  const awalan = mode === 'hari' ? D : bulan;
   const prog = progres(aktivitas.kunjungan, kode, D, hasil.baris.map((b) => b.kode_toko));
-  const pen = aktivitas.penagihan.filter((p) => p.kode_salesman === kode && p.tanggal === D);
+  // Resume bulanan: plan call = toko terjadwal di PJP tiap hari pada bulan itu; call = yang sudah selesai.
+  const progBulan = useMemo(() => {
+    const plan = new Set(data.pjp.filter((p) => normKode(p.kode_salesman) === normKode(kode) && p.tanggal_kunjungan.startsWith(bulan)).map((p) => `${p.tanggal_kunjungan}|${normKode(p.kode_toko)}`));
+    const selesai = aktivitas.kunjungan.filter((k) => k.kode_salesman === normKode(kode) && !!k.selesaiAt && plan.has(`${k.tanggal}|${k.kode_toko}`)).length;
+    return { selesai, total: plan.size };
+  }, [data.pjp, aktivitas.kunjungan, kode, bulan]);
+  const callPlan = mode === 'hari' ? prog : progBulan;
+  const pen = aktivitas.penagihan.filter((p) => p.kode_salesman === kode && p.tanggal.startsWith(awalan));
   const rp = ringkasPenagihan(pen);
-  const po = aktivitas.po.filter((p) => p.kode_salesman === kode && p.tanggal === D);
+  const po = aktivitas.po.filter((p) => p.kode_salesman === kode && p.tanggal.startsWith(awalan));
+  const produkMap = useMemo(() => new Map(produk.map((p) => [p.kode_sku, p])), [produk]);
+  const rpo = ringkasPO(po, produkMap, channelToko);
+  const penHari = aktivitas.penagihan.filter((p) => p.kode_salesman === kode && p.tanggal === D);
+  const poHari = aktivitas.po.filter((p) => p.kode_salesman === kode && p.tanggal === D);
   const stok = aktivitas.stok.filter((s) => s.kode_salesman === kode && s.tanggal === D);
   const nama = (k: string) => masterIdx.get(k)?.nama_toko ?? k;
 
   type Ev = { t: string; icon: typeof HandCoins; title: string; sub: string; tone: string };
   const timeline: Ev[] = [
-    ...pen.map((p) => ({
+    ...penHari.map((p) => ({
       t: p.createdAt,
       icon: HandCoins,
       title: `${LABEL_STATUS_BAYAR[p.status]}${p.nominal ? ` ${formatRupiah(p.nominal)}` : ''}`,
       sub: `${nama(p.kode_toko)} · ${p.no_faktur}${p.alasan ? ` · ${p.alasan}` : ''}${p.tanggal_janji ? ` · janji ${formatTanggal(p.tanggal_janji)}` : ''}`,
       tone: p.status === 'BAD_DEBT' ? 'text-red-600 bg-red-50' : p.status === 'JANJI_BAYAR' ? 'text-violet-600 bg-violet-50' : 'text-emerald-600 bg-emerald-50',
     })),
-    ...po.map((p) => ({ t: p.createdAt, icon: PackageCheck, title: `PO ${p.no_po} · ${formatRupiah(p.total)}`, sub: `${nama(p.kode_toko)} · ${p.items.length} SKU`, tone: 'text-brand-600 bg-brand-50' })),
+    ...poHari.map((p) => ({ t: p.createdAt, icon: PackageCheck, title: `PO ${p.no_po} · ${formatRupiah(p.total)}`, sub: `${nama(p.kode_toko)} · ${p.items.length} SKU`, tone: 'text-brand-600 bg-brand-50' })),
     ...stok.map((s) => ({ t: s.createdAt, icon: ReceiptText, title: 'Cek stok', sub: `${nama(s.kode_toko)} · ${s.internal.length} SKU · ${s.kompetitor.length} kompetitor`, tone: 'text-slate-600 bg-slate-100' })),
     ...aktivitas.kunjungan
       .filter((k) => k.kode_salesman === kode && k.tanggal === D && k.selesaiAt)
@@ -317,13 +332,27 @@ export function AktivitasPage() {
     <>
       <SalesHeader title="Aktivitas" />
       <SalesBody>
+        <div className="space-y-2">
+          <Segmented block label="Periode resume" value={mode} onChange={setMode} options={[{ value: 'hari', label: 'Hari ini' }, { value: 'bulan', label: 'Bulan ini' }]} />
+          {mode === 'bulan' && (
+            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-1 py-1">
+              <button type="button" aria-label="Bulan sebelumnya" onClick={() => setBulan((b) => geserBulan(b, -1))} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                <ChevronLeft size={18} />
+              </button>
+              <span className="text-sm font-semibold text-slate-900">{formatBulan(bulan)}</span>
+              <button type="button" aria-label="Bulan berikutnya" onClick={() => setBulan((b) => geserBulan(b, 1))} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100">
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-2">
-          <SummaryCard label="Kunjungan selesai" value={`${prog.selesai}/${prog.total}`} accent="green" />
-          <SummaryCard label="Terkumpul" value={formatRupiah(rp.terkumpul)} accent="green" />
-          <SummaryCard label="Janji bayar" value={rp.jumlahJanji} icon={<CalendarClock size={12} />} />
-          <SummaryCard label="Bad debt" value={rp.jumlahBadDebt} accent={rp.jumlahBadDebt ? 'red' : undefined} icon={<ShieldAlert size={12} />} />
-          <SummaryCard label="PO terkirim" value={po.length} accent="brand" />
-          <SummaryCard label="Nilai PO" value={formatRupiah(po.reduce((s, p) => s + p.total, 0))} accent="brand" />
+          <SummaryCard label="CALL VS PLAN CALL" value={`${callPlan.selesai}/${callPlan.total}`} accent="green" />
+          <SummaryCard label="AR COLLECTION" value={formatRupiah(rp.terkumpul)} accent="green" />
+          <SummaryCard label="TOTAL EC" value={rpo.ec} accent="brand" />
+          <SummaryCard label="TOTAL ITEM" value={rpo.totalItem} accent="brand" hint="SKU memenuhi MOQ" />
+          <SummaryCard label="ITEM/EC" value={rpo.itemPerEc.toLocaleString('id-ID')} accent="brand" />
+          <SummaryCard label="TOTAL NILAI PO" value={formatRupiah(rpo.nilai)} accent="brand" />
         </div>
 
         <div>

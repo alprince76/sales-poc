@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { hitungKunjungan, ringkasTagihan } from './billing';
-import { applyPenagihan, buatPenagihan, penagihanTerakhir, ringkasPenagihan, validasiPenagihan } from './collection';
+import { applyPenagihan, buatPenagihan, fakturOverdueTertahan, penagihanTerakhir, ringkasPenagihan, validasiPenagihan } from './collection';
 import {
   catatanMoq,
   cekKredit,
   gabungProduk,
   historiToko,
+  ringkasPO,
   suggestedQty,
   validasiPO,
   validasiQty,
@@ -213,15 +214,15 @@ describe('Cek Stok', () => {
 describe('Stepper kunjungan', () => {
   it('langkah berurutan, selesaikan menandai sisa sebagai DILEWATI', () => {
     let l = tandaiLangkah([], 'sls01', 'tk1', D, 'collection', 'SELESAI');
-    // v15: urutan Stok → Retur → Collection → PO
+    // feedback 19: Retur di-take out → urutan Stok → Collection → PO
     expect(langkahBerikut(cariKunjungan(l, 'SLS01', 'TK1', D))).toBe('stok');
-    expect(langkahBerikut(cariKunjungan(tandaiLangkah(l, 'SLS01', 'TK1', D, 'stok', 'SELESAI'), 'SLS01', 'TK1', D))).toBe('retur');
+    expect(langkahBerikut(cariKunjungan(tandaiLangkah(l, 'SLS01', 'TK1', D, 'stok', 'SELESAI'), 'SLS01', 'TK1', D))).toBe('po');
     l = tandaiLangkah(l, 'SLS01', 'TK1', D, 'collection', 'DILEWATI'); // tidak menurunkan SELESAI
     expect(cariKunjungan(l, 'SLS01', 'TK1', D)?.langkah.collection).toBe('SELESAI');
     expect(isSelesai(cariKunjungan(l, 'SLS01', 'TK1', D))).toBe(false);
     l = selesaikan(l, 'SLS01', 'TK1', D, 'now');
     const s = cariKunjungan(l, 'SLS01', 'TK1', D)!;
-    expect(s.langkah).toEqual({ collection: 'SELESAI', stok: 'DILEWATI', retur: 'DILEWATI', po: 'DILEWATI' });
+    expect(s.langkah).toEqual({ collection: 'SELESAI', stok: 'DILEWATI', po: 'DILEWATI' });
     expect(isSelesai(s)).toBe(true);
     expect(l).toHaveLength(1);
   });
@@ -237,5 +238,42 @@ import { toCSV } from './csv';
 describe('CSV export', () => {
   it('escape koma, kutip, baris baru', () => {
     expect(toCSV([{ a: 'x,y', b: 'say "hi"', c: 1 }, { a: 'line\nbreak', b: null, c: 2 }])).toBe('a,b,c\r\n"x,y","say ""hi""",1\r\n"line\nbreak",,2');
+  });
+});
+
+// ───────────────────────── Feedback 19 ─────────────────────────
+describe('Validasi overdue (Submit PO)', () => {
+  const log = (no: string, status: Penagihan['status'], t = 'x'): Penagihan => ({ id: no + status + t, no_faktur: no, kode_toko: 'TK1', kode_salesman: 'SLS01', tanggal: D, status, nominal: 0, createdAt: t });
+  it('Partially Paid & Tidak Bayar menahan; Paid, Janji Bayar, tanpa log tidak', () => {
+    const od = [{ no_faktur: 'I1' }, { no_faktur: 'I2' }, { no_faktur: 'I3' }, { no_faktur: 'I4' }];
+    const logs = [log('i1', 'PARTIAL'), log('I2', 'BAD_DEBT'), log('I3', 'JANJI_BAYAR')];
+    expect(fakturOverdueTertahan(od, logs)).toEqual(['I1', 'I2']);
+    expect(fakturOverdueTertahan([], [])).toEqual([]);
+  });
+  it('memakai status terakhir: Partially Paid lalu Janji Bayar → lolos', () => {
+    expect(fakturOverdueTertahan([{ no_faktur: 'I1' }], [log('I1', 'PARTIAL', '1'), log('I1', 'JANJI_BAYAR', '2')])).toEqual([]);
+  });
+});
+
+describe('Total Item / EC', () => {
+  const produk = new Map([
+    ['A', { moq: 3, punyaMoq: true }],
+    ['B', { moq: 1, punyaMoq: false }],
+  ]);
+  const po = (toko: string, items: { kode_sku: string; qty: number }[], total = 100) => ({ kode_toko: toko, total, items: items.map((i) => ({ ...i, nama_sku: '', divisi: '', satuan: 'Pcs', harga: 1, subtotal: i.qty })) });
+  it('SKU memenuhi MOQ dihitung 1 item; di bawah MOQ tidak', () => {
+    const r = ringkasPO([po('T1', [{ kode_sku: 'A', qty: 2 }, { kode_sku: 'B', qty: 1 }]), po('T2', [{ kode_sku: 'A', qty: 3 }])], produk);
+    expect(r.totalItem).toBe(2); // A(2) < MOQ 3 tidak dihitung; B tanpa MOQ + A(3) dihitung
+  });
+  it('EC = toko unik; ITEM/EC = item ÷ EC; bagi nol aman', () => {
+    const r = ringkasPO([po('T1', [{ kode_sku: 'A', qty: 3 }]), po('T1', [{ kode_sku: 'B', qty: 2 }]), po('T2', [{ kode_sku: 'A', qty: 6 }])], produk);
+    expect(r.ec).toBe(2);
+    expect(r.totalItem).toBe(3);
+    expect(r.itemPerEc).toBe(1.5);
+    expect(r.nilai).toBe(300);
+    expect(ringkasPO([], produk)).toEqual({ ec: 0, totalItem: 0, itemPerEc: 0, nilai: 0 });
+  });
+  it('MT tidak memakai MOQ: semua item qty>0 dihitung', () => {
+    expect(ringkasPO([po('M1', [{ kode_sku: 'A', qty: 1 }])], produk, () => 'MT').totalItem).toBe(1);
   });
 });

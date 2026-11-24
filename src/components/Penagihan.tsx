@@ -58,7 +58,7 @@ const OPSI: { value: StatusBayar; label: string; desc: string }[] = [
   { value: 'PAID', label: 'Paid', desc: 'Lunas seluruh sisa' },
   { value: 'PARTIAL', label: 'Partially Paid', desc: 'Bayar sebagian' },
   { value: 'JANJI_BAYAR', label: 'Janji Bayar', desc: 'Bayar di tanggal lain' },
-  { value: 'BAD_DEBT', label: 'Bad Debt', desc: 'Tidak tertagih' },
+  { value: 'BAD_DEBT', label: 'Tidak Bayar', desc: 'Tidak tertagih' },
 ];
 
 /** Form update status penagihan satu faktur (bottom sheet). */
