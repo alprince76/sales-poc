@@ -120,7 +120,10 @@ export function bacaFilePo(ws: XLSX.WorkSheet, ctx: KonteksPo): HasilPo {
     if (qty === null) alasan.push(`Qty harus angka, bukan "${String(sel('qty') ?? '')}"`);
     else if (qty <= 0) alasan.push('Qty harus lebih dari 0');
     const satuan = String(sel('satuan') ?? '').trim().toUpperCase();
-    if (qty !== null && p && ['CAR', 'CTN', 'KARTON', 'DUS', 'BOX'].includes(satuan)) qty *= p.isi_karton;
+    if (qty !== null && p && ['CAR', 'CTN', 'KARTON', 'DUS', 'BOX'].includes(satuan)) {
+      if (p.isi_karton > 1) qty *= p.isi_karton;
+      else alasan.push(`Isi per karton SKU ${kodeSku} belum diketahui; tulis qty dalam ${p.satuan}`);
+    }
     let tanggal = ctx.D;
     if (!kosong(sel('tanggal'))) {
       const t = normalizeDate(sel('tanggal'));

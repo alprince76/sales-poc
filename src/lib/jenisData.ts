@@ -25,6 +25,7 @@ export const JENIS_DATA: JenisData[] = [
   { id: 'sku', tipe: 'produk', nama: 'Data SKU', menu: 'SKU', desc: 'Kode SKU, nama (new material), principal, sub brand, harga dasar, status aktif' },
   { id: 'moq-gt', tipe: 'rules', nama: 'Data MOQ GT', menu: 'MOQ GT', desc: 'Satuan, MOQ per item (flag), isi per karton (CAR) — khusus GT' },
   { id: 'sku-listed-mt', tipe: 'msl', nama: 'Data SKU Listed per Store MT', menu: 'SKU Listed MT', desc: 'SKU yang wajib ada di outlet MT (status_listed YES/NO)' },
+  { id: 'avg-order-mt', tipe: 'avgorder', nama: 'Data Avg Order MT', menu: 'Avg Order MT', desc: 'Rata-rata order per outlet MT per SKU (Pcs), tampil di bawah nama SKU saat input PO MT' },
   { id: 'histori-gt', tipe: 'histori', nama: 'Data Historical Order Outlet GT', menu: 'Historical Order GT', desc: 'Pembelian toko per SKU (suggested order, last order, SKU Listed)' },
   { id: 'price', tipe: 'price', nama: 'Price List', menu: 'Price List', desc: 'Harga per SKU per channel (GT/MT; kosong = semua). Menggantikan harga Master SKU' },
 ];
@@ -56,6 +57,7 @@ export function kunciBaris(tipe: TipeData, r: Record<string, unknown>): string |
     case 'price':
       return `${k(r.kode_sku)}|${String(r.channel ?? '').toUpperCase()}`;
     case 'msl':
+    case 'avgorder':
       return `${k(r.kode_toko)}|${k(r.kode_sku)}`;
     case 'pjp':
       return `${k(r.kode_salesman)}|${String(r.tanggal_kunjungan)}|${k(r.kode_toko)}`;
@@ -77,6 +79,7 @@ export function cekDuplikat(tipe: TipeData, rows: Record<string, unknown>[], bar
     rules: 'Kode SKU',
     price: 'Kombinasi SKU + channel',
     msl: 'Kombinasi toko + SKU',
+    avgorder: 'Kombinasi toko + SKU',
     pjp: 'Kunjungan salesman + tanggal + toko',
   };
   return `${label[tipe] ?? 'Data'} sudah ada (baris ${i + 1}).`;

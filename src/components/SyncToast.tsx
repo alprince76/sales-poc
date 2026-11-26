@@ -12,6 +12,7 @@ const NAMA: Record<TipeData, string> = {
   histori: 'Historical order',
   msl: 'SKU listed MT',
   price: 'Price list',
+  avgorder: 'Avg order MT',
 };
 
 /** Toast saat data master berubah karena upload admin (sinkron dari server). */

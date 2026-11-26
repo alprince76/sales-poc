@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { indexFaktur, indexMaster, normKode, type FakturIndex } from './lib/billing';
 import { applyPenagihan } from './lib/collection';
 import { indexMsl, indexTransaksi, type IndexTransaksi } from './lib/msl';
-import { gabungProduk, type ProdukLengkap } from './lib/order';
+import { gabungProduk, indexAvgOrder, type ProdukLengkap } from './lib/order';
 import { bacaDataSet, bacaWorkbook, SEMUA_TIPE, type TipeData } from './lib/parse';
 import { ambilData, ambilMeta, bandingVersi, hapusData, RemoteError, simpanData, ubahBaris as ubahBarisServer, type MetaServer, type OpBaris } from './lib/remote';
 import { terapkan } from './lib/jenisData';
@@ -31,7 +31,7 @@ import type {
   PurchaseOrder,
   Retur,
 } from './lib/types';
-import { selesaikan, tandaiLangkah } from './lib/visit';
+import { selesaikan, tandaiLangkah, type ReasonKunjungan } from './lib/visit';
 
 /** Tanggal default demo (data dummy minggu 9–14 Nov 2026). */
 export const DEFAULT_DATE = '2026-11-09';
@@ -87,7 +87,7 @@ interface Meta {
 export const INTERVAL_SINKRON = 60_000;
 
 const semua = <V,>(v: V) => Object.fromEntries(SEMUA_TIPE.map((t) => [t, v])) as Record<TipeData, V>;
-const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [], price: [] };
+const EMPTY_DATA: DataSet = { master: [], rovi: [], pjp: [], produk: [], rules: [], histori: [], msl: [], price: [], avgorder: [] };
 const EMPTY_AKT: Aktivitas = { penagihan: [], stok: [], po: [], kunjungan: [], retur: [] };
 const metaKosong = (): Meta => ({ sumber: semua<Sumber>('dummy'), updatedAt: semua<string | null>(null), version: semua<number | null>(null) });
 const salinMeta = (m: Meta): Meta => ({ sumber: { ...m.sumber }, updatedAt: { ...m.updatedAt }, version: { ...m.version } });
@@ -134,7 +134,7 @@ async function fetchDummy(): Promise<DataSet> {
   const res = await fetch(DUMMY_URL);
   if (!res.ok) throw new Error(`Gagal memuat data dummy (${res.status})`);
   const p = bacaDataSet(bacaWorkbook(new Uint8Array(await res.arrayBuffer())));
-  return { master: p.master.valid, rovi: p.rovi.valid, pjp: p.pjp.valid, produk: p.produk.valid, rules: p.rules.valid, histori: p.histori.valid, msl: p.msl.valid, price: p.price.valid };
+  return { master: p.master.valid, rovi: p.rovi.valid, pjp: p.pjp.valid, produk: p.produk.valid, rules: p.rules.valid, histori: p.histori.valid, msl: p.msl.valid, price: p.price.valid, avgorder: p.avgorder.valid };
 }
 
 export function newId(): string {
@@ -175,6 +175,8 @@ interface Ctx {
   /** Channel per kode toko (default GT). */
   channelToko: (kodeToko: string) => Channel;
   mslIdx: Map<string, Set<string>>;
+  /** Avg Order MT: "toko|sku" → Pcs. */
+  avgIdx: Map<string, number>;
   /** Histori + PO aplikasi → dasar warning MSL yang dinamis. */
   trxIdx: IndexTransaksi;
   aktivitas: Aktivitas;
@@ -221,7 +223,7 @@ interface Ctx {
   simpanStok: (s: CekStok) => void;
   submitPO: (po: Omit<PurchaseOrder, 'no_po'>) => PurchaseOrder;
   tandai: (sales: string, toko: string, D: string, langkah: LangkahKunjungan, hasil: HasilLangkah) => void;
-  selesaikanKunjungan: (sales: string, toko: string, D: string) => void;
+  selesaikanKunjungan: (sales: string, toko: string, D: string, reason?: ReasonKunjungan) => void;
 }
 
 const DataContext = createContext<Ctx | null>(null);
@@ -693,7 +695,7 @@ export function DataProvider({ children, penggunaId, lingkup }: { children: Reac
     [updateAkt],
   );
   const selesaikanKunjungan = useCallback<Ctx['selesaikanKunjungan']>(
-    (sales, toko, D) => updateAkt((a) => ({ ...a, kunjungan: selesaikan(a.kunjungan, sales, toko, D, new Date().toISOString()) })),
+    (sales, toko, D, reason) => updateAkt((a) => ({ ...a, kunjungan: selesaikan(a.kunjungan, sales, toko, D, new Date().toISOString(), reason) })),
     [updateAkt],
   );
 
@@ -721,6 +723,7 @@ export function DataProvider({ children, penggunaId, lingkup }: { children: Reac
         .sort((a, b) => a.kode.localeCompare(b.kode)),
       channelToko,
       mslIdx: indexMsl(data.msl),
+      avgIdx: indexAvgOrder(data.avgorder),
     };
   }, [raw, aktivitas.penagihan, aktivitas.retur, lingkupKey]);
 

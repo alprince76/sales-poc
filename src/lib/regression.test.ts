@@ -34,6 +34,7 @@ beforeAll(() => {
     histori: parsed.histori.valid,
     msl: parsed.msl.valid,
     price: parsed.price.valid,
+    avgorder: parsed.avgorder.valid,
   };
 });
 

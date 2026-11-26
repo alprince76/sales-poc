@@ -86,7 +86,7 @@ describe('CRUD per baris lewat client', () => {
 
 describe('seed', () => {
   it('default hanya isi yang kosong; --force menimpa; --only memfilter', () => {
-    expect(pilihTipeSeed(['rules', 'master'], {}).isi).toEqual(['rovi', 'pjp', 'produk', 'histori', 'msl', 'price']);
+    expect(pilihTipeSeed(['rules', 'master'], {}).isi).toEqual(['rovi', 'pjp', 'produk', 'histori', 'msl', 'price', 'avgorder']);
     expect(pilihTipeSeed(['rules'], { force: true }).isi).toEqual([...SEMUA_TIPE]);
     expect(pilihTipeSeed(['rules'], { only: ['rules', 'produk'] })).toEqual({ isi: ['produk'], lewati: ['rules'], tidakDikenal: [] });
     expect(pilihTipeSeed([], { only: ['xyz'] }).tidakDikenal).toEqual(['xyz']);

@@ -6,7 +6,7 @@ import { normKode } from '../../lib/billing';
 import type { ISODate } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import { compliance, daftarSkuMSL, labelWarning, teksTerakhirOrder, type SkuMSL } from '../../lib/msl';
-import { historiToko, suggestedQty, validasiQty } from '../../lib/order';
+import { formatQty, historiToko, suggestedQty, validasiQty, type ProdukLengkap } from '../../lib/order';
 import { useData } from '../../state';
 
 /**
@@ -68,9 +68,19 @@ export function WarningBadge({ s }: { s: Pick<SkuMSL, 'warning'> }) {
   );
 }
 
+/** "Avg order: 12 Pcs" dari upload Data Avg Order MT; tanpa data → tidak tampil. */
+export function AvgOrderInfo({ qty, p }: { qty: number | undefined; p: Pick<ProdukLengkap, 'satuan' | 'isi_karton'> }) {
+  if (qty === undefined) return null;
+  return (
+    <div className="my-0.5">
+      <span className="inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold text-violet-800">Avg order: {formatQty(qty, p)}</span>
+    </div>
+  );
+}
+
 /** Satu baris SKU: info + warning + Add to PO (atau stepper bila sudah di keranjang). */
 export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISODate }) {
-  const { keranjang, setQtyKeranjang, data } = useData();
+  const { keranjang, setQtyKeranjang, data, avgIdx } = useData();
   const qty = keranjang[kodeToko]?.[s.kode_sku] ?? 0;
   const err = qty ? validasiQty(qty, s, { channel: 'MT' }) : null;
   const tambah = () => {
@@ -97,6 +107,7 @@ export function SkuRow({ s, kodeToko, D }: { s: SkuMSL; kodeToko: string; D: ISO
             )
           )}
           <div className="text-sm font-semibold leading-snug text-slate-900">{s.nama_sku}</div>
+          <AvgOrderInfo qty={avgIdx.get(`${normKode(kodeToko)}|${s.kode_sku}`)} p={s} />
           <div className="mt-0.5 text-xs text-slate-500">
             {s.kode_sku} · {s.sub_brand ?? s.kategori ?? s.divisi} · <span className="font-medium tabular text-slate-700">{formatRupiah(s.harga)}</span>/{s.satuan}
           </div>

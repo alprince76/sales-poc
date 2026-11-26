@@ -19,7 +19,7 @@ const TANPA_MOQ = { moq: 1 };
 import { newId, useData } from '../../state';
 import { useSalesSession } from '../sales/session';
 import { ActionBar, InfoHistori, KonfirmasiPO } from '../sales/VisitPage';
-import { SkuRow, useMslToko } from './shared';
+import { AvgOrderInfo, SkuRow, useMslToko } from './shared';
 
 type Step = 'po' | 'msl' | 'summary';
 const STEPS: { id: Step; label: string }[] = [
@@ -144,7 +144,7 @@ function TotalBar({ kodeToko, label, onClick, disabled }: { kodeToko: string; la
 
 function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }) {
   const { D } = useSalesSession();
-  const { produkMT: produk, data, keranjang, setQtyKeranjang } = useData();
+  const { produkMT: produk, data, keranjang, setQtyKeranjang, avgIdx } = useData();
   const v = usePOToko(kodeToko);
   const k = keranjang[kodeToko] ?? {};
   const bolehPO = useIzin('app.mt').tambah;
@@ -181,6 +181,7 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
         terpilih={new Set(Object.keys(k))}
         onPilih={tambah}
         label="Cari SKU untuk PO"
+        info={(p) => <AvgOrderInfo qty={avgIdx.get(`${normKode(kodeToko)}|${p.kode_sku}`)} p={p} />}
         renderExtra={(p) => (
           <QtyInline label={p.nama_sku} value={k[p.kode_sku] ?? 0} isi={p.isi_karton} satuan={p.satuan} onChange={(n) => setQtyKeranjang(kodeToko, p.kode_sku, Math.max(0, n))} />
         )}
@@ -196,12 +197,14 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
             {items.map((p) => {
               const qty = k[p.kode_sku] ?? 0;
               const e = v.errorItem[p.kode_sku];
+              const avg = avgIdx.get(`${normKode(kodeToko)}|${p.kode_sku}`);
               return (
                 <li key={p.kode_sku}>
                   <Card className={cn('p-3', e && 'border-red-200')}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="text-sm font-semibold leading-snug text-slate-900">{p.nama_sku}</div>
+                        <AvgOrderInfo qty={avg} p={p} />
                         <div className="text-xs text-slate-500">
                           {p.kode_sku} · {p.sub_brand ?? p.divisi} · {formatRupiah(p.harga)}/{p.satuan}
                         </div>
@@ -211,7 +214,7 @@ function InputPOStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => voi
                       </button>
                     </div>
                     <div className="mt-1.5">
-                      <InfoHistori h={histMap.get(p.kode_sku)} p={p} />
+                      <InfoHistori h={histMap.get(p.kode_sku)} p={p} tanpaBiasa={avg !== undefined} />
                     </div>
                     <div className="mt-2 flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
                       <QtyUnit label={`qty ${p.nama_sku}`} value={qty} isi={p.isi_karton} satuan={p.satuan} moq={1} invalid={!!e} onChange={(n) => setQtyKeranjang(kodeToko, p.kode_sku, Math.max(n, 0) || 0)} />

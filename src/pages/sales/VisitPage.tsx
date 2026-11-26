@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HarusDitagih, InfoOutlet, KelompokFaktur, useDetailToko } from '../../components/DetailTokoView';
 import { PenagihanSheet } from '../../components/Penagihan';
-import { Badge, Button, Card, cn, EmptyState, Input, NumberStepper, SectionTitle, Segmented, Sheet, StatusBayarBadge, useToast } from '../../components/ui';
+import { Badge, Button, Card, cn, EmptyState, Field, Input, NumberStepper, SectionTitle, Segmented, Sheet, StatusBayarBadge, useToast } from '../../components/ui';
 import { QtyInline, QtyUnit, UnitToggle } from '../../components/QtyUnit';
 import { SkuPicker } from '../../components/SkuPicker';
 import { normKode, type FakturDinilai } from '../../lib/billing';
@@ -13,7 +13,7 @@ import { formatRupiah } from '../../lib/format';
 import { formatQty, historiToko, labelMoq, suggestedQty, teksBiasaOrder, validasiPO, type HistoriSku, type ProdukLengkap } from '../../lib/order';
 import { daftarSkuStok, validasiStok } from '../../lib/stock';
 import type { ItemPO, LangkahKunjungan, StokInternal, StokKompetitor } from '../../lib/types';
-import { cariKunjungan, isSelesai, LABEL_LANGKAH, LANGKAH } from '../../lib/visit';
+import { cariKunjungan, isSelesai, LABEL_LANGKAH, LANGKAH, REASON, reasonWajib, teksReason, type JenisReason } from '../../lib/visit';
 import { newId, useData } from '../../state';
 import { useSalesSession } from './session';
 import { BelumTerkirim } from './SalesLayout';
@@ -370,9 +370,9 @@ function StokStep({ kodeToko, onNext }: { kodeToko: string; onNext: () => void }
 // ───────────────────────── 4. Purchase Order ─────────────────────────
 
 /** Info histori yang mudah dibaca: "Biasa order ±4 Pcs/bulan · Terakhir 6 Pcs, 20 Okt 2026". */
-export function InfoHistori({ h, p }: { h?: HistoriSku; p: ProdukLengkap }) {
+export function InfoHistori({ h, p, tanpaBiasa }: { h?: HistoriSku; p: ProdukLengkap; tanpaBiasa?: boolean }) {
   if (!h) return null;
-  const biasa = teksBiasaOrder(suggestedQty(h, p), p.satuan);
+  const biasa = tanpaBiasa ? null : teksBiasaOrder(suggestedQty(h, p), p.satuan);
   return (
     <p className="text-xs text-slate-500">
       {biasa && <span className="font-medium text-slate-700">{biasa}</span>}
@@ -748,6 +748,12 @@ function SelesaiStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
   };
 
   const selesai = isSelesai(status);
+  const wajib = reasonWajib({ stok: !!stok, collection: pen.length > 0, po: po.length > 0 });
+  // Pilihan dikosongkan otomatis bila jenis reason yang wajib berubah.
+  const [isian, setIsian] = useState({ jenis: wajib, pilih: '', lain: '' });
+  const { pilih, lain } = isian.jenis === wajib ? isian : { pilih: '', lain: '' };
+  const reason = teksReason(pilih, lain);
+  const tercatat = (Object.keys(REASON) as JenisReason[]).filter((j) => status?.[j] && !(j === 'alasan_tidak_transaksi' && po.length));
   return (
     <>
       <Card className="divide-y divide-slate-100 px-4">
@@ -760,14 +766,45 @@ function SelesaiStep({ kodeToko, onGo }: { kodeToko: string; onGo: (s: Step) => 
       ) : (
         <p className="px-1 text-sm text-slate-500">Langkah yang belum diisi akan dicatat sebagai dilewati.</p>
       )}
+      {selesai &&
+        tercatat.map((j) => (
+          <Card key={j} className="p-4">
+            <div className="text-xs text-slate-500">{REASON[j].label}</div>
+            <div className="text-sm font-semibold text-slate-900">{status?.[j]}</div>
+          </Card>
+        ))}
+      {!selesai && wajib && (
+        <Card className="space-y-3 p-4">
+          <Field label={`${REASON[wajib].label} (wajib)`}>
+            <select
+              value={pilih}
+              onChange={(e) => setIsian({ jenis: wajib, pilih: e.target.value, lain })}
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            >
+              <option value="">Pilih alasan…</option>
+              {REASON[wajib].pilihan.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {pilih === 'Lainnya' && (
+            <Field label="Alasan lainnya">
+              <Input value={lain} onChange={(e) => setIsian({ jenis: wajib, pilih, lain: e.target.value })} placeholder="Tulis alasan" autoFocus />
+            </Field>
+          )}
+        </Card>
+      )}
       {!selesai && (
         <ActionBar>
           <Button
             block
             size="lg"
             variant="success"
+            disabled={!!wajib && !reason}
             onClick={() => {
-              selesaikanKunjungan(sales, kodeToko, D);
+              selesaikanKunjungan(sales, kodeToko, D, wajib && reason ? { [wajib]: reason } : undefined);
               toast('Kunjungan selesai');
               nav('/sales');
             }}

@@ -4,7 +4,7 @@
 import { addDays, diffDays, type ISODate } from './dates';
 import { normKode } from './billing';
 import { formatRupiah } from './format';
-import type { HistoriSales, ItemPO, MasterToko, OrderRule, PriceList, Produk, PurchaseOrder } from './types';
+import type { AvgOrder, HistoriSales, ItemPO, MasterToko, OrderRule, PriceList, Produk, PurchaseOrder } from './types';
 
 export interface ProdukLengkap extends Produk {
   satuan: string;
@@ -18,8 +18,25 @@ export interface ProdukLengkap extends Produk {
 export type ChannelHarga = 'GT' | 'MT';
 
 /**
+ * Isi per karton yang tertulis di nama SKU: "24×108gr" → 24, "1×18×180 g" → 18, "1X48" → 48.
+ * Pola lain (mis. "12x6x40 gr") ambigu → null; isinya harus diisi lewat Data MOQ GT.
+ */
+export function isiDariNama(nama: string | undefined): number | null {
+  const m = /\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)+/i.exec(nama ?? '');
+  if (!m) return null;
+  const angka = m[0].split(/[x×]/i).map((a) => Number(a.trim().replace(',', '.')));
+  const berat = /^\s*(kg|gram|gr|g|ml|ltr|lt|l|cc)\b/i.test(nama!.slice(m.index + m[0].length));
+  let isi: number | null = null;
+  if (angka.length === 3 && angka[0] === 1) isi = angka[1];
+  else if (angka.length === 2 && berat) isi = angka[0];
+  else if (angka.length === 2 && angka[0] === 1) isi = angka[1];
+  return isi !== null && Number.isInteger(isi) && isi > 1 ? isi : null;
+}
+
+/**
  * Gabung Master SKU + Order Rules + Price List.
- * - SKU tanpa rule → MOQ 1, satuan "Pcs", isi karton 1.
+ * - SKU tanpa rule → MOQ 1, satuan "Pcs".
+ * - Isi karton = rule → tertulis di nama SKU (isiDariNama) → 1.
  * - Nama = kolom new_material bila ada.
  * - Harga = Price List untuk channel tsb → Price List tanpa channel → harga Master SKU.
  */
@@ -47,7 +64,7 @@ export function gabungProduk(
       harga: hargaCh.get(kode) ?? hargaUmum.get(kode) ?? p.harga,
       satuan: rule?.satuan ?? 'Pcs',
       moq: Math.max(1, rule?.moq ?? 1),
-      isi_karton: Math.max(1, rule?.isi_karton ?? 1),
+      isi_karton: Math.max(1, rule?.isi_karton ?? isiDariNama(p.new_material) ?? isiDariNama(p.nama_sku) ?? 1),
       punyaMoq: !!rule,
     };
   });
@@ -93,6 +110,11 @@ export const labelMoq = (p: Pick<ProdukLengkap, 'moq' | 'satuan' | 'punyaMoq'>):
 export function skuTanpaMoq(produk: readonly { kode_sku: string; nama_sku: string; new_material?: string }[], rules: readonly { kode_sku: string }[]) {
   const ada = new Set(rules.map((r) => normKode(r.kode_sku)));
   return produk.filter((p) => !ada.has(normKode(p.kode_sku)));
+}
+
+/** Index Avg Order MT: "toko|sku" → qty (Pcs). */
+export function indexAvgOrder(rows: readonly AvgOrder[]): Map<string, number> {
+  return new Map(rows.map((r) => [`${normKode(r.kode_toko)}|${normKode(r.kode_sku)}`, r.avg_order]));
 }
 
 export interface HistoriSku {

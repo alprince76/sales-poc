@@ -105,6 +105,13 @@ export interface HistoriSales {
   qty: number;
 }
 
+/** Average order MT per toko + SKU (dari file upload), dalam satuan dasar (Pcs). */
+export interface AvgOrder {
+  kode_toko: string;
+  kode_sku: string;
+  avg_order: number;
+}
+
 export interface DataSet {
   master: MasterToko[];
   rovi: Faktur[];
@@ -114,6 +121,7 @@ export interface DataSet {
   histori: HistoriSales[];
   msl: MslListing[];
   price: PriceList[];
+  avgorder: AvgOrder[];
 }
 
 export type StatusFaktur = 'OVERDUE' | 'JATUH_TEMPO_HARI_INI' | 'BELUM_JATUH_TEMPO';
@@ -220,6 +228,10 @@ export interface StatusKunjungan {
   tanggal: ISODate;
   langkah: Partial<Record<LangkahKunjungan, HasilLangkah>>;
   selesaiAt?: string;
+  /** GT: diisi saat kunjungan ditutup tanpa cek stok, collection, maupun PO. */
+  alasan_tidak_dikunjungi?: string;
+  /** GT: diisi saat toko dikunjungi tetapi tidak ada PO. */
+  alasan_tidak_transaksi?: string;
 }
 
 export interface Aktivitas {

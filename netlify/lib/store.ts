@@ -6,7 +6,7 @@
 import { neon } from '@neondatabase/serverless';
 
 /** Harus sama dengan SEMUA_TIPE di src/lib/parse.ts (dicek di test). */
-export const TIPE = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl', 'price'] as const;
+export const TIPE = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl', 'price', 'avgorder'] as const;
 export type Tipe = (typeof TIPE)[number];
 
 export interface InfoData {

@@ -163,6 +163,7 @@ describe('v11: file mentah & template', () => {
       histori: [{ kode_toko: '112260', kode_sku: '124024', tanggal_po: '2026-10-01', qty: 3 }],
       msl: [{ kode_toko: 'M1', kode_sku: '124024', status_listed: true }],
       price: [{ kode_sku: '124024', harga: 1200, channel: 'MT' }],
+      avgorder: [{ kode_toko: 'M1', kode_sku: '124024', avg_order: 12 }],
     };
     for (const t of SEMUA_TIPE) {
       const wb = bacaWorkbook(XLSX.write(buatWorkbook(t, contoh[t]), { type: 'array', bookType: 'xlsx' }));

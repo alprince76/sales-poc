@@ -5,10 +5,10 @@
 import * as XLSX from 'xlsx';
 import { normalizeDate } from './dates';
 import { normKode } from './billing';
-import type { DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, MslListing, OrderRule, PriceList, Produk } from './types';
+import type { AvgOrder, DataSet, Faktur, HistoriSales, Kunjungan, MasterToko, MslListing, OrderRule, PriceList, Produk } from './types';
 
 export type TipeData = keyof DataSet;
-export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl', 'price'];
+export const SEMUA_TIPE: TipeData[] = ['master', 'rovi', 'pjp', 'produk', 'rules', 'histori', 'msl', 'price', 'avgorder'];
 
 type JenisKolom = 'string' | 'date' | 'int' | 'bool';
 interface Kolom {
@@ -116,6 +116,14 @@ export const SKEMA: Record<TipeData, { sheet: string; kolom: Kolom[] }> = {
       { nama: 'kode_sku', jenis: 'string', wajib: true, alias: ['sku', 'kode_material', 'material'] },
       { nama: 'harga', jenis: 'int', wajib: true, alias: ['price', 'harga_jual'] },
       { nama: 'channel', jenis: 'string', wajib: false },
+    ],
+  },
+  avgorder: {
+    sheet: 'Avg_Order_MT',
+    kolom: [
+      { nama: 'kode_toko', jenis: 'string', wajib: true, alias: ['outlet', 'kode_outlet', 'cust_code', 'customer'] },
+      { nama: 'kode_sku', jenis: 'string', wajib: true, alias: ['sku', 'kode_material', 'material'] },
+      { nama: 'avg_order', jenis: 'int', wajib: true, alias: ['avg', 'average_order', 'rata_rata_order', 'rata2_order', 'avg_qty'] },
     ],
   },
 };
@@ -443,6 +451,7 @@ export function parseSheet(tipe: 'produk', ws: XLSX.WorkSheet): HasilParse<Produ
 export function parseSheet(tipe: 'rules', ws: XLSX.WorkSheet): HasilParse<OrderRule>;
 export function parseSheet(tipe: 'histori', ws: XLSX.WorkSheet): HasilParse<HistoriSales>;
 export function parseSheet(tipe: 'msl', ws: XLSX.WorkSheet): HasilParse<MslListing>;
+export function parseSheet(tipe: 'avgorder', ws: XLSX.WorkSheet): HasilParse<AvgOrder>;
 export function parseSheet(tipe: 'price', ws: XLSX.WorkSheet): HasilParse<PriceList>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet, peta?: PetaKolom): HasilParse<unknown>;
 export function parseSheet(tipe: TipeData, ws: XLSX.WorkSheet, peta?: PetaKolom): HasilParse<unknown> {
@@ -599,5 +608,6 @@ export function bacaDataSet(wb: XLSX.WorkBook) {
     histori: opt('histori', (ws) => parseSheet('histori', ws)),
     msl: opt('msl', (ws) => parseSheet('msl', ws)),
     price: opt('price', (ws) => parseSheet('price', ws)),
+    avgorder: opt('avgorder', (ws) => parseSheet('avgorder', ws)),
   };
 }

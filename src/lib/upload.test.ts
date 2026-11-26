@@ -20,6 +20,7 @@ describe('US-A2 Ringkasan & warning upload', () => {
     rules: [],
     histori: [],
     msl: [],
+    avgorder: [],
     price: [],
   };
 

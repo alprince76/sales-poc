@@ -14,6 +14,7 @@ import { formatTanggal } from '../../lib/dates';
 import { formatRupiah } from '../../lib/format';
 import type { StatusBayar, StatusFaktur } from '../../lib/types';
 import { cariKunjungan, isSelesai, progres } from '../../lib/visit';
+import { laporanKunjungan } from '../../lib/laporanKunjungan';
 import { DEFAULT_DATE, formatTimestamp, useData } from '../../state';
 import { AdminPage, Table } from './AdminLayout';
 import { teksTerakhirOrder } from '../../lib/msl';
@@ -308,7 +309,20 @@ function RuteGT({ sales, D, actions }: { sales: string; D: string; actions: Reac
     );
 
   return (
-    <AdminPage title="Rute Salesman" description="General Trade: rute, penagihan, dan hasil kunjungan." actions={actions}>
+    <AdminPage
+      title="Rute Salesman"
+      description="General Trade: rute, penagihan, dan hasil kunjungan."
+      actions={
+        <>
+          {actions}
+          <ExportMenu
+            label="Export Kunjungan"
+            disabled={!hasil.baris.length}
+            onExport={(f) => ekspor(f, `kunjungan-gt-${sales}-${D}`, laporanKunjungan(hasil.baris, aktivitas, sales, D))}
+          />
+        </>
+      }
+    >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         <SummaryCard label="Kunjungan" value={hasil.jumlahKunjungan} hint={`${hasil.jumlahPerluDitagih} perlu ditagih`} />
         <div className="col-span-1 rounded-2xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-card">
@@ -374,6 +388,8 @@ function RuteGT({ sales, D, actions }: { sales: string; D: string; actions: Reac
                     </td>
                     <td className="text-xs text-slate-600">
                       {isSelesai(k) && <Badge tone="green">Selesai</Badge>}
+                      {k?.alasan_tidak_dikunjungi && <div className="mt-1 text-amber-700">Tidak dikunjungi: {k.alasan_tidak_dikunjungi}</div>}
+                      {k?.alasan_tidak_transaksi && !tpo.length && <div className="mt-1 text-amber-700">Tidak transaksi: {k.alasan_tidak_transaksi}</div>}
                       {tp.length > 0 && <div className="mt-1">{formatRupiah(ringkasPenagihan(tp).terkumpul)} terkumpul</div>}
                       {tpo.length > 0 && <div>PO {formatRupiah(tpo.reduce((s, p) => s + p.total, 0))}</div>}
                     </td>

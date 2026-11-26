@@ -138,6 +138,24 @@ export function ringkasUpload(
     };
   }
 
+  if (tipe === 'avgorder') {
+    const toko = new Set(data.avgorder.map((a) => normKode(a.kode_toko)));
+    if (data.master.length) {
+      const hilang = kodeTidakAda(toko, masterKode);
+      if (hilang.length) warning.push(`${hilang.length} toko di Avg Order tidak ditemukan di Master Toko: ${contoh(hilang)}`);
+    }
+    const produkKode = new Set(data.produk.map((p) => normKode(p.kode_sku)));
+    const asing = [...new Set(data.avgorder.filter((a) => !produkKode.has(normKode(a.kode_sku))).map((a) => a.kode_sku))];
+    if (data.produk.length && asing.length) warning.push(`${asing.length} SKU di Avg Order tidak ada di Master SKU: ${contoh(asing)}`);
+    return {
+      baris: [
+        { label: 'Baris Avg Order', nilai: data.avgorder.length.toLocaleString('id-ID') },
+        { label: 'Toko', nilai: toko.size.toLocaleString('id-ID') },
+      ],
+      warning,
+    };
+  }
+
   const sales = new Set(data.master.map((m) => normKode(m.kode_salesman)));
   return {
     baris: [
